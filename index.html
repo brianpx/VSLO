@@ -12,7 +12,7 @@
   <!-- Babel (for inline JSX in this prototype) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Tailwind (CDN for prototyping; ignore prod warning for now) -->
+  <!-- Tailwind (CDN for prototyping; use a build step for production) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Chart.js (UMD) -->
@@ -27,14 +27,13 @@
     .glass-morphism { background: rgba(255,255,255,.95); backdrop-filter: blur(10px); border:1px solid rgba(255,255,255,.2); }
     .hover-lift { transition: all .3s cubic-bezier(0.4,0,0.2,1); }
     .hover-lift:hover { transform: translateY(-2px); box-shadow: 0 20px 25px -5px rgba(0,0,0,.1), 0 10px 10px -5px rgba(0,0,0,.04); }
-    .drop-target { outline: 2px dashed rgba(124,58,237,.35); outline-offset: 2px; }
   </style>
 </head>
 <body class="bg-gray-50">
   <div id="root"></div>
 
   <script type="text/babel" data-presets="env,react">
-    const { useState, useEffect, useRef, useCallback } = React;
+    const { useState, useEffect, useRef } = React;
 
     /* Icons */
     const FileUploadIcon = () => (
@@ -87,10 +86,21 @@
       </svg>
     );
 
+    /* Helpers */
+    const useIsMobile = () => {
+      const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false);
+      useEffect(() => {
+        const onResize = () => setIsMobile(window.innerWidth < 640);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+      }, []);
+      return isMobile;
+    };
+
     const TabButton = ({ icon, label, tabKey, activeTab, setActiveTab }) => (
       <button
         onClick={() => setActiveTab(tabKey)}
-        className={`flex items-center space-x-2 px-6 py-3 rounded-lg transition-all duration-200 hover-lift
+        className={`flex items-center justify-center sm:justify-start space-x-2 px-4 sm:px-6 py-3 rounded-lg transition-all duration-200 hover-lift w-full sm:w-auto
           ${activeTab === tabKey ? 'bg-white text-purple-600 shadow-lg' : 'bg-white/20 text-white hover:bg-white/30'}`}
       >
         {icon}
@@ -122,6 +132,8 @@
     );
 
     const VSLOApp = () => {
+      const isMobile = useIsMobile();
+
       /* Settings */
       const [capacityPerMonth, setCapacityPerMonth] = useState(5);
       const [lockAccepted, setLockAccepted] = useState(true);
@@ -145,8 +157,8 @@
       const [canRevert, setCanRevert] = useState(false);
 
       /* Drag & drop support */
-      const dragRef = useRef(null);
-      const originalPositionsRef = useRef({});
+      const dragRef = useRef(null); // { applicant_id, fromMonth, fromIndex }
+      const originalPositionsRef = useRef({}); // applicant_id -> { month, index } baseline
 
       /* UI refs */
       const fileInputRef = useRef(null);
@@ -326,18 +338,9 @@
         return sortConfig.direction === 'asc' ? <span className="text-purple-600">↑</span> : <span className="text-purple-600">↓</span>;
       };
 
-      /* Verified 1st-choice counts (by first preference only) */
-      const firstChoiceCounts = useCallback(() => {
-        const counts = {};
-        (scoredData || []).forEach(a => {
-          const first = a?.rotation_preferences?.[0];
-          if (first) counts[first] = (counts[first] || 0) + 1;
-        });
-        return counts;
-      }, [scoredData]);
-
-      /* Chart.js */
+      /* Chart.js (disabled on mobile) */
       useEffect(() => {
+        if (isMobile) return; // skip rendering chart on mobile
         if (scoredData.length > 0 && activeTab === 'results' && chartRef.current) {
           const timer = setTimeout(() => {
             if (!chartRef.current) return;
@@ -371,7 +374,7 @@
 
           return () => clearTimeout(timer);
         }
-      }, [scoredData, activeTab]);
+      }, [scoredData, activeTab, isMobile]);
 
       const exportRotationSchedule = () => {
         console.log('Exporting rotation schedule...', rotationAssignments);
@@ -403,7 +406,7 @@
       };
 
       const handleDragOver = (e) => {
-        e.preventDefault(); // allow drop
+        e.preventDefault();
       };
 
       const handleDrop = (toMonth, toIndex, e) => {
@@ -424,14 +427,11 @@
 
           const target = toArr[toIndex];
 
-          // Place dragged into target cell
           toArr[toIndex] = dragged;
 
           if (target) {
-            // Swap: put target back to origin
             fromArr[fromIndex] = target;
           } else {
-            // Leave origin empty
             fromArr[fromIndex] = undefined;
           }
 
@@ -490,153 +490,173 @@
         }
       };
 
-      const firstCounts = firstChoiceCounts();
+      /* Tabs for desktop vs. mobile: mobile = full-width buttons in a grid */
+      const TabBar = () => (
+        <div className="w-full">
+          <div className="hidden sm:flex sm:flex-wrap sm:gap-4">
+            <TabButton icon={<FileUploadIcon />} label="Upload" tabKey="upload" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<ProcessIcon />} label="Process" tabKey="process" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<ChartIcon />} label="Results" tabKey="results" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<TableIcon />} label="Table" tabKey="table" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<CalendarIcon />} label="Rotations" tabKey="rotations" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            {/* Bias Mitigation tab */}
+            <TabButton icon={<ShieldIcon />} label="Bias Mitigation" tabKey="bias" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<DownloadIcon />} label="Export" tabKey="export" activeTab={activeTab} setActiveTab={setActiveTab}/>
+          </div>
+
+          {/* Mobile: full-width buttons */}
+          <div className="grid grid-cols-2 gap-2 sm:hidden mt-4">
+            <TabButton icon={<FileUploadIcon />} label="Upload" tabKey="upload" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<ProcessIcon />} label="Process" tabKey="process" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<ChartIcon />} label="Results" tabKey="results" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<TableIcon />} label="Table" tabKey="table" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<CalendarIcon />} label="Rotations" tabKey="rotations" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <TabButton icon={<ShieldIcon />} label="Bias" tabKey="bias" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            <div className="col-span-2">
+              <TabButton icon={<DownloadIcon />} label="Export" tabKey="export" activeTab={activeTab} setActiveTab={setActiveTab}/>
+            </div>
+          </div>
+        </div>
+      );
 
       return (
         <div className="min-h-screen">
           <div className="gradient-bg text-white">
-            <div className="container mx-auto px-6 py-8">
-              <div className="flex items-center justify-between mb-8">
+            <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 mb-6 sm:mb-8">
                 <div>
-                  <h1 className="text-3xl font-bold mb-2">VSLO Application Processing</h1>
-                  <p className="text-purple-100">Automated ERAS PDF extraction and scoring system</p>
+                  <h1 className="text-2xl sm:text-3xl font-bold mb-1 sm:mb-2">VSLO Application Processing</h1>
+                  <p className="text-purple-100 text-sm sm:text-base">Automated ERAS PDF extraction and scoring system</p>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm text-purple-100">Anesthesiology VSLO</div>
-                  <div className="text-2xl font-bold">ANES460</div>
+                  <div className="text-xs sm:text-sm text-purple-100">Anesthesiology VSLO</div>
+                  <div className="text-xl sm:text-2xl font-bold">ANES460</div>
                 </div>
               </div>
 
-              <div className="flex space-x-4 flex-wrap">
-                <TabButton icon={<FileUploadIcon />} label="Upload" tabKey="upload" activeTab={activeTab} setActiveTab={setActiveTab}/>
-                <TabButton icon={<ProcessIcon />} label="Process" tabKey="process" activeTab={activeTab} setActiveTab={setActiveTab}/>
-                <TabButton icon={<ChartIcon />} label="Results" tabKey="results" activeTab={activeTab} setActiveTab={setActiveTab}/>
-                <TabButton icon={<TableIcon />} label="Table" tabKey="table" activeTab={activeTab} setActiveTab={setActiveTab}/>
-                <TabButton icon={<CalendarIcon />} label="Rotations" tabKey="rotations" activeTab={activeTab} setActiveTab={setActiveTab}/>
-                {/* New Bias Mitagation tab */}
-                <TabButton icon={<ShieldIcon />} label="Bias Mitagation" tabKey="bias" activeTab={activeTab} setActiveTab={setActiveTab}/>
-                <TabButton icon={<DownloadIcon />} label="Export" tabKey="export" activeTab={activeTab} setActiveTab={setActiveTab}/>
-              </div>
+              <TabBar />
             </div>
           </div>
 
-          <div className="container mx-auto px-6 py-8">
+          <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
             {/* Upload */}
             {activeTab === 'upload' && (
-  <div className="animate-slide-in">
-    <div className="glass-morphism rounded-xl p-8 mb-6">
-      <h2 className="text-2xl font-semibold mb-6 text-gray-800">Upload ERAS PDFs</h2>
+              <div className="animate-slide-in">
+                <div className="glass-morphism rounded-xl p-6 sm:p-8 mb-6">
+                  <h2 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6 text-gray-800">Upload ERAS PDFs</h2>
 
-      <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-purple-400 transition-colors">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".pdf"
-          onChange={handleFileUpload}
-          className="hidden"
-        />
-        <FileUploadIcon />
-        <p className="mt-4 text-lg text-gray-600">
-          Drag and drop PDF files here, or{' '}
-          <button
-            onClick={() => fileInputRef.current && fileInputRef.current.click()}
-            className="text-purple-600 hover:text-purple-700 font-medium underline"
-          >
-            browse
-          </button>
-        </p>
-        <p className="mt-2 text-sm text-gray-500">Only PDF files are accepted</p>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 sm:p-12 text-center hover:border-purple-400 transition-colors">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept=".pdf"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <div className="flex justify-center">
+                      <FileUploadIcon />
+                    </div>
+                    <p className="mt-4 text-base sm:text-lg text-gray-600">
+                      Drag and drop PDF files here, or{' '}
+                      <button
+                        onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                        className="text-purple-600 hover:text-purple-700 font-medium underline"
+                      >
+                        browse
+                      </button>
+                    </p>
+                    <p className="mt-2 text-sm text-gray-500">Only PDF files are accepted</p>
 
-        {/* NEW BYPASS BUTTON */}
-        <div className="mt-6">
-          <button
-            onClick={simulateProcessing}
-            className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors hover-lift"
-          >
-            🚀 Start Demo Without Upload
-          </button>
-        </div>
-      </div>
-
-      {uploadedFiles.length > 0 && (
-        <div className="mt-8">
-          <h3 className="font-semibold mb-4 text-gray-700">Uploaded Files ({uploadedFiles.length})</h3>
-          <div className="space-y-2">
-            {uploadedFiles.map(file => (
-              <div key={file.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <FileUploadIcon />
-                  <div>
-                    <p className="font-medium text-gray-800">{file.name}</p>
-                    <p className="text-sm text-gray-500">{file.size}</p>
+                    {/* BYPASS BUTTON - always visible */}
+                    <div className="mt-6">
+                      <button
+                        onClick={simulateProcessing}
+                        className="w-full sm:w-auto px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors hover-lift"
+                      >
+                        🚀 Start Demo Without Upload
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <span className="text-green-600">✓ Ready</span>
-              </div>
-            ))}
-          </div>
 
-          <button
-            onClick={simulateProcessing}
-            className="mt-6 px-8 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors hover-lift"
-          >
-            Start Processing
-          </button>
-        </div>
-      )}
-    </div>
-  </div>
-)}
+                  {uploadedFiles.length > 0 && (
+                    <div className="mt-6 sm:mt-8">
+                      <h3 className="font-semibold mb-3 sm:mb-4 text-gray-700">Uploaded Files ({uploadedFiles.length})</h3>
+                      <div className="space-y-2">
+                        {uploadedFiles.map(file => (
+                          <div key={file.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                            <div className="flex items-center space-x-3">
+                              <FileUploadIcon />
+                              <div>
+                                <p className="font-medium text-gray-800 text-sm sm:text-base">{file.name}</p>
+                                <p className="text-xs sm:text-sm text-gray-500">{file.size}</p>
+                              </div>
+                            </div>
+                            <span className="text-green-600 text-sm">✓ Ready</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={simulateProcessing}
+                        className="mt-4 sm:mt-6 w-full sm:w-auto px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors hover-lift"
+                      >
+                        Start Processing
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Process */}
             {activeTab === 'process' && (
               <div className="animate-slide-in">
-                <div className="glass-morphism rounded-xl p-8 mb-6">
-                  <h2 className="text-2xl font-semibold mb-6 text-gray-800">Processing Pipeline</h2>
+                <div className="glass-morphism rounded-xl p-6 sm:p-8 mb-6">
+                  <h2 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6 text-gray-800">Processing Pipeline</h2>
 
                   <div className="space-y-4">
-                    <div className="bg-gray-200 rounded-full h-4 overflow-hidden">
+                    <div className="bg-gray-200 rounded-full h-3 sm:h-4 overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-purple-500 to-purple-600 transition-all duration-500"
                         style={{ width: `${processingProgress}%` }}
                       />
                     </div>
-                    <p className="text-center text-gray-600">
+                    <p className="text-center text-gray-600 text-sm sm:text-base">
                       {processingStatus === 'idle' && 'Ready to process'}
                       {processingStatus === 'processing' && `Processing... ${Math.round(processingProgress)}%`}
                       {processingStatus === 'complete' && 'Processing complete!'}
                     </p>
 
-                    <div className="mt-8 space-y-4">
+                    <div className="mt-6 sm:mt-8 space-y-3 sm:space-y-4">
                       {[
                         { step: 1, name: 'PDF Text Extraction', desc: 'Extract text using pdfplumber/OCR' },
                         { step: 2, name: 'LLM Processing', desc: 'Extract structured data with Mistral' },
                         { step: 3, name: 'Schema Validation', desc: 'Validate against JSON schema' },
                         { step: 4, name: 'Scoring & Ranking', desc: 'Apply rubric and calculate scores' },
-                        // Renamed per request
-                        { step: 5, name: 'Bias Mitagation', desc: 'Sub: Verify rank' }
+                        // Renamed per requirement:
+                        { step: 5, name: 'Bias Mitigation', desc: 'Verify rank' },
                       ].map(({ step, name, desc }) => (
                         <div key={step}
-                          className={`flex items-start space-x-4 p-4 rounded-lg transition-all
+                          className={`flex items-start space-x-3 sm:space-x-4 p-3 sm:p-4 rounded-lg transition-all
                             ${processingProgress >= (step - 1) * 20 ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50'}`}>
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold
+                          <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-white text-sm sm:text-base font-bold
                             ${processingProgress >= step * 20 ? 'bg-green-500' :
                                processingProgress >= (step - 1) * 20 ? 'bg-purple-500 animate-pulse-slow' : 'bg-gray-300'}`}>
                             {processingProgress >= step * 20 ? '✓' : step}
                           </div>
                           <div className="flex-1">
-                            <h3 className="font-semibold text-gray-800">{name}</h3>
-                            <p className="text-sm text-gray-600">{desc}</p>
+                            <h3 className="font-semibold text-gray-800 text-sm sm:text-base">{name}</h3>
+                            <p className="text-xs sm:text-sm text-gray-600">{desc}</p>
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  <div className="mt-8">
-                    <h3 className="font-semibold mb-4 text-gray-700">Processing Logs</h3>
-                    <div className="bg-gray-900 text-green-400 p-4 rounded-lg h-48 overflow-y-auto font-mono text-sm">
+                  <div className="mt-6 sm:mt-8">
+                    <h3 className="font-semibold mb-3 sm:mb-4 text-gray-700">Processing Logs</h3>
+                    <div className="bg-gray-900 text-green-400 p-3 sm:p-4 rounded-lg h-40 sm:h-48 overflow-y-auto font-mono text-xs sm:text-sm">
                       {logs.map((log, idx) => (
                         <div key={idx} className="mb-1">
                           <span className="text-gray-500">[{log.timestamp}]</span>
@@ -657,50 +677,51 @@
             {/* Results */}
             {activeTab === 'results' && (
               <div className="animate-slide-in">
-                <div className="glass-morphism rounded-xl p-8 mb-6">
-                  <h2 className="text-2xl font-semibold mb-6 text-gray-800">Applicant Results</h2>
+                <div className="glass-morphism rounded-xl p-6 sm:p-8 mb-6">
+                  <h2 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6 text-gray-800">Applicant Results</h2>
 
                   {scoredData.length > 0 ? (
                     <div>
-                      <div className="grid grid-cols-5 gap-4 mb-8">
-                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
-                          <p className="text-sm text-blue-600 mb-1">Total</p>
-                          <p className="text-2xl font-bold text-blue-900">{scoredData.length}</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-8">
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-3 sm:p-4 rounded-lg">
+                          <p className="text-xs sm:text-sm text-blue-600 mb-1">Total</p>
+                          <p className="text-xl sm:text-2xl font-bold text-blue-900">{scoredData.length}</p>
                         </div>
-                        <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg">
-                          <p className="text-sm text-green-600 mb-1">Strong Accept</p>
-                          <p className="text-2xl font-bold text-green-900">
+                        <div className="bg-gradient-to-br from-green-50 to-green-100 p-3 sm:p-4 rounded-lg">
+                          <p className="text-xs sm:text-sm text-green-600 mb-1">Strong Accept</p>
+                          <p className="text-xl sm:text-2xl font-bold text-green-900">
                             {scoredData.filter(a => a.recommendation === 'Strong Accept').length}
                           </p>
                         </div>
-                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
-                          <p className="text-sm text-blue-600 mb-1">Accept</p>
-                          <p className="text-2xl font-bold text-blue-900">
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-3 sm:p-4 rounded-lg">
+                          <p className="text-xs sm:text-sm text-blue-600 mb-1">Accept</p>
+                          <p className="text-xl sm:text-2xl font-bold text-blue-900">
                             {scoredData.filter(a => a.recommendation === 'Accept').length}
                           </p>
                         </div>
-                        <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-4 rounded-lg">
-                          <p className="text-sm text-yellow-600 mb-1">Hold</p>
-                          <p className="text-2xl font-bold text-yellow-900">
+                        <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-3 sm:p-4 rounded-lg">
+                          <p className="text-xs sm:text-sm text-yellow-600 mb-1">Hold</p>
+                          <p className="text-xl sm:text-2xl font-bold text-yellow-900">
                             {scoredData.filter(a => a.recommendation === 'Hold').length}
                           </p>
                         </div>
-                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
-                          <p className="text-sm text-purple-600 mb-1">Avg Score</p>
-                          <p className="text-2xl font-bold text-purple-900">
+                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-3 sm:p-4 rounded-lg col-span-2 sm:col-span-1">
+                          <p className="text-xs sm:text-sm text-purple-600 mb-1">Avg Score</p>
+                          <p className="text-xl sm:text-2xl font-bold text-purple-900">
                             {(scoredData.reduce((s,a)=>s+a.rubric_total,0)/scoredData.length).toFixed(1)}
                           </p>
                         </div>
                       </div>
 
-                      <div className="mb-8 bg-white p-6 rounded-lg shadow-sm">
+                      {/* Chart hidden on mobile */}
+                      <div className="hidden sm:block mb-8 bg-white p-6 rounded-lg shadow-sm">
                         <h3 className="font-semibold mb-4 text-gray-700">Score Comparison</h3>
                         <div style={{ height: '300px' }}>
                           <canvas ref={chartRef}></canvas>
                         </div>
                       </div>
 
-                      <h3 className="font-semibold mb-4 text-gray-700">Applicant Cards</h3>
+                      <h3 className="font-semibold mb-3 sm:mb-4 text-gray-700">Applicant Cards</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {scoredData.map((a, i) => (
                           <ApplicantCard key={i} applicant={a} onSelect={setSelectedApplicant}/>
@@ -717,13 +738,49 @@
               </div>
             )}
 
-            {/* Table */}
+            {/* Table (desktop table + mobile cards) */}
             {activeTab === 'table' && scoredData.length > 0 && (
               <div className="animate-slide-in">
-                <div className="glass-morphism rounded-xl p-8">
-                  <h2 className="text-2xl font-semibold mb-6 text-gray-800">Sortable Rankings</h2>
+                <div className="glass-morphism rounded-xl p-6 sm:p-8">
+                  <h2 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6 text-gray-800">Sortable Rankings</h2>
 
-                  <div className="overflow-x-auto">
+                  {/* Mobile card list */}
+                  <div className="sm:hidden space-y-3">
+                    {scoredData.map((a, idx) => (
+                      <div key={idx} className="bg-white rounded-lg p-4 shadow-sm border hover-lift" onClick={() => setSelectedApplicant(a)}>
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm text-gray-500">Rank</div>
+                          <div className="text-lg font-semibold text-gray-800">{idx + 1}</div>
+                        </div>
+                        <div className="mt-2">
+                          <div className="text-base font-semibold text-gray-900">{a.name}</div>
+                          <div className="text-sm text-gray-600">{a.medical_school}</div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                          <div><span className="text-gray-500">Step 1:</span> <span className="font-medium">{a.step1 || 'N/A'}</span></div>
+                          <div><span className="text-gray-500">Step 2:</span> <span className="font-medium">{a.step2 || 'N/A'}</span></div>
+                          <div><span className="text-gray-500">Pubs:</span> <span className="font-medium">{a.publications}</span></div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-semibold">{a.rubric_total}</span>
+                            <div className="w-24 bg-gray-200 rounded-full h-2">
+                              <div className="h-2 rounded-full bg-gradient-to-r from-purple-500 to-purple-600" style={{ width: `${a.rubric_total}%` }} />
+                            </div>
+                          </div>
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium
+                            ${a.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
+                               a.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
+                               a.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                            {a.recommendation}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Desktop table */}
+                  <div className="hidden sm:block overflow-x-auto">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="border-b-2 border-gray-200">
@@ -809,23 +866,23 @@
               </div>
             )}
 
-            {/* Rotations with drag & drop + per-card revert */}
+            {/* Rotations */}
             {activeTab === 'rotations' && (
               <div className="animate-slide-in">
-                <div className="glass-morphism rounded-xl p-8">
-                  <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-2xl font-semibold text-gray-800">Rotation Calendar</h2>
+                <div className="glass-morphism rounded-xl p-6 sm:p-8">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-0 mb-4 sm:mb-6">
+                    <h2 className="text-xl sm:text-2xl font-semibold text-gray-800">Rotation Calendar</h2>
                     <button
                       onClick={exportRotationSchedule}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center space-x-2">
+                      className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center justify-center sm:justify-start space-x-2">
                       <DownloadIcon /><span>Export Schedule</span>
                     </button>
                   </div>
 
                   {matchingStats && (
-                    <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 mb-6">
+                    <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 mb-4 sm:mb-6">
                       <h3 className="font-semibold mb-3 text-gray-700">Matching Statistics</h3>
-                      <div className="grid grid-cols-4 gap-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         <div><p className="text-sm text-gray-600">1st Choice</p><p className="text-2xl font-bold text-green-600">{matchingStats.firstChoice}</p></div>
                         <div><p className="text-sm text-gray-600">2nd Choice</p><p className="text-2xl font-bold text-blue-600">{matchingStats.secondChoice}</p></div>
                         <div><p className="text-sm text-gray-600">3rd Choice</p><p className="text-2xl font-bold text-yellow-600">{matchingStats.thirdChoice}</p></div>
@@ -836,12 +893,11 @@
 
                   <div className="overflow-x-auto">
                     <div className="min-w-max">
-                      <div className="grid grid-cols-12 gap-2">
+                      <div className="grid grid-cols-4 sm:grid-cols-12 gap-2">
                         <div className="font-semibold text-gray-700 p-2">Slot</div>
                         {months.map(month => (
-                          <div key={month} className="font-semibold text-center text-gray-700 p-2 border-b-2 border-gray-200">
+                          <div key={month} className="font-semibold text-center text-gray-700 p-2 border-b-2 border-gray-200 text-xs sm:text-base">
                             {month}
-                            <div className="text-xs text-gray-500">1st choice: <span className="font-semibold">{firstCounts[month] || 0}</span></div>
                           </div>
                         ))}
                         {[1,2,3,4,5].map(slot => ([
@@ -849,7 +905,6 @@
                           ...months.map(month => {
                             const index = slot - 1;
                             const student = rotationAssignments[month]?.[index];
-
                             const moved = student ? isMoved(student, month, index) : false;
 
                             return (
@@ -857,18 +912,18 @@
                                 key={`${month}-${slot}`}
                                 onDragOver={handleDragOver}
                                 onDrop={(e) => handleDrop(month, index, e)}
-                                className={`border rounded-lg p-2 min-h-[80px] transition-all hover:shadow-md cursor-pointer
+                                className={`border rounded-lg p-2 min-h-[84px] transition-all hover:shadow-md cursor-pointer
                                   ${student ? 'bg-white' : 'bg-gray-50 border-dashed'} ${moved ? 'border-red-500 ring-1 ring-red-400' : ''}`}
-                                onDoubleClick={() => { if (student) setSelectedApplicant(student); }}
                               >
                                 {student ? (
                                   <div
                                     draggable
                                     onDragStart={(e) => handleDragStart(student, month, index, e)}
+                                    onDoubleClick={() => setSelectedApplicant(student)}  // open popup on double click
                                     className="h-full"
                                   >
                                     <div className="flex items-start justify-between">
-                                      <p className="text-sm font-medium text-gray-800 truncate pr-2">
+                                      <p className="text-xs sm:text-sm font-medium text-gray-800 truncate pr-2">
                                         {student.name.split(' ').map(n => n[0]).join('')} - {student.name.split(' ')[1]}
                                       </p>
                                       {moved && (
@@ -882,7 +937,7 @@
                                       )}
                                     </div>
                                     <div className="mt-1">
-                                      <span className={`text-xs px-2 py-1 rounded-full inline-block
+                                      <span className={`text-[10px] sm:text-xs px-2 py-1 rounded-full inline-block
                                         ${student.invitation_status === 'accepted' ? 'bg-green-100 text-green-800' :
                                            student.invitation_status === 'invited' ? 'bg-blue-100 text-blue-800' :
                                            student.invitation_status === 'declined' ? 'bg-red-100 text-red-800' :
@@ -892,7 +947,7 @@
                                       </span>
                                     </div>
                                     {student.preference_matched && (
-                                      <p className={`text-xs mt-1
+                                      <p className={`text-[10px] sm:text-xs mt-1
                                         ${student.preference_matched === 1 ? 'text-green-600' :
                                            student.preference_matched === 2 ? 'text-blue-600' : 'text-yellow-600'}`}>
                                         {student.preference_matched === 1 ? '1st' :
@@ -901,7 +956,7 @@
                                     )}
                                   </div>
                                 ) : (
-                                  <div className="text-gray-400 text-sm text-center mt-4">Empty</div>
+                                  <div className="text-gray-400 text-xs sm:text-sm text-center mt-4">Empty</div>
                                 )}
                               </div>
                             );
@@ -911,9 +966,9 @@
                     </div>
                   </div>
 
-                  <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                  <div className="mt-4 sm:mt-6 p-4 bg-gray-50 rounded-lg">
                     <h3 className="font-semibold mb-2 text-gray-700">Status Legend</h3>
-                    <div className="flex flex-wrap gap-4">
+                    <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-3 sm:gap-4">
                       <div className="flex items-center space-x-2"><span className="w-3 h-3 bg-green-500 rounded-full"></span><span className="text-sm text-gray-600">Accepted</span></div>
                       <div className="flex items-center space-x-2"><span className="w-3 h-3 bg-blue-500 rounded-full"></span><span className="text-sm text-gray-600">Invited</span></div>
                       <div className="flex items-center space-x-2"><span className="w-3 h-3 bg-yellow-500 rounded-full"></span><span className="text-sm text-gray-600">Waitlist</span></div>
@@ -922,15 +977,15 @@
                     </div>
                   </div>
 
-                  <div className="mt-6 p-4 border rounded-lg">
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="mt-4 sm:mt-6 p-4 border rounded-lg">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div>
                         <h3 className="font-semibold mb-1 text-gray-700">Matching Algorithm</h3>
                         <p className="text-sm text-gray-600">
                           Priority-based placement by score with 1st/2nd/3rd preference consideration. Accepted students can be locked.
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         <button
                           onClick={() => {
                             if (!Array.isArray(scoredData) || scoredData.length === 0) {
@@ -943,36 +998,36 @@
                             addLog('Re-running matching algorithm…', 'info');
                             runMatchingAlgorithm(scoredData);
                           }}
-                          className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg font-medium hover:bg-purple-200 transition-colors"
+                          className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg font-medium hover:bg-purple-200 transition-colors w-full sm:w-auto"
                         >
                           Re-run Matching Algorithm
                         </button>
                         <button
                           onClick={handleRevertSchedule}
                           disabled={!canRevert}
-                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${canRevert ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors w-full sm:w-auto ${canRevert ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
                         >
                           Revert
                         </button>
                       </div>
                     </div>
-                    <div className="mt-4 grid grid-cols-4 gap-4">
+                    <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
                       <div><p className="text-sm text-gray-600">1st Choice</p><p className="text-2xl font-bold text-green-600">{matchingStats?.firstChoice ?? 0}</p></div>
                       <div><p className="text-sm text-gray-600">2nd Choice</p><p className="text-2xl font-bold text-blue-600">{matchingStats?.secondChoice ?? 0}</p></div>
                       <div><p className="text-sm text-gray-600">3rd Choice</p><p className="text-2xl font-bold text-yellow-600">{matchingStats?.thirdChoice ?? 0}</p></div>
                       <div><p className="text-sm text-gray-600">Unmatched</p><p className="text-2xl font-bold text-red-600">{matchingStats?.unmatched ?? 0}</p></div>
                     </div>
-                    <div className="mt-4 flex items-center gap-4">
+                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                       <label className="flex items-center gap-2 text-sm text-gray-700">
                         <input type="checkbox" checked={lockAccepted} onChange={e => setLockAccepted(e.target.checked)} />
                         Lock already accepted students
                       </label>
-                      <label className="flex items-center gap-2 text-sm text-gray-700">
-                        Capacity / month:
+                      <label className="flex items-center justify-between sm:justify-start gap-2 text-sm text-gray-700">
+                        <span>Capacity / month:</span>
                         <input
                           type="number"
                           min="1"
-                          className="w-20 border rounded px-2 py-1"
+                          className="w-24 border rounded px-2 py-1"
                           value={capacityPerMonth}
                           onChange={e => setCapacityPerMonth(parseInt(e.target.value || '1', 10))}
                         />
@@ -983,44 +1038,66 @@
               </div>
             )}
 
-            {/* Bias Mitagation (new tab) */}
+            {/* Bias Mitigation */}
             {activeTab === 'bias' && (
               <div className="animate-slide-in">
-                <div className="glass-morphism rounded-xl p-8">
-                  <h2 className="text-2xl font-semibold mb-2 text-gray-800">Bias Mitagation</h2>
-                  <p className="text-sm text-gray-600 mb-6">Sub: <span className="font-medium">Verify rank</span></p>
+                <div className="glass-morphism rounded-xl p-6 sm:p-8">
+                  <h2 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6 text-gray-800">Bias Mitigation</h2>
+                  <p className="text-sm sm:text-base text-gray-600 mb-4">
+                    This panel helps review rankings for potential bias. Use it to verify rank distributions by school, graduation year, and other attributes.
+                  </p>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="border rounded-lg p-4">
-                      <h3 className="font-semibold text-gray-800 mb-2">Checklist</h3>
-                      <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
-                        <li>Compare pre-/post-mitigation rank order.</li>
-                        <li>Highlight applicants moved ≥ 3 places.</li>
-                        <li>Flag ties broken by secondary criteria.</li>
-                        <li>Confirm underrepresented groups not adversely shifted.</li>
-                      </ul>
+                  {/* Simple summary blocks */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
+                    <div className="bg-white rounded-lg p-3 sm:p-4 shadow-sm">
+                      <div className="text-xs text-gray-500">Applicants</div>
+                      <div className="text-xl font-bold text-gray-800">{scoredData.length || 0}</div>
                     </div>
-                    <div className="border rounded-lg p-4">
-                      <h3 className="font-semibold text-gray-800 mb-2">Quick Stats</h3>
-                      <p className="text-sm text-gray-700">First-choice requests by month (from dataset):</p>
-                      <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {Object.keys(firstCounts).length === 0 && <div className="text-xs text-gray-500">No data</div>}
-                        {Object.entries(firstCounts).map(([m, c]) => (
-                          <div key={m} className="rounded-md bg-purple-50 px-3 py-2 text-sm">
-                            <div className="font-medium text-gray-800">{m}</div>
-                            <div className="text-xs text-gray-600">1st choice: <span className="font-semibold">{c}</span></div>
-                          </div>
-                        ))}
-                      </div>
+                    <div className="bg-white rounded-lg p-3 sm:p-4 shadow-sm">
+                      <div className="text-xs text-gray-500">Avg Score</div>
+                      <div className="text-xl font-bold text-gray-800">{scoredData.length ? (scoredData.reduce((s,a)=>s+a.rubric_total,0)/scoredData.length).toFixed(1) : '0.0'}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 sm:p-4 shadow-sm">
+                      <div className="text-xs text-gray-500">1st Choice Matches</div>
+                      <div className="text-xl font-bold text-gray-800">{matchingStats?.firstChoice ?? 0}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 sm:p-4 shadow-sm">
+                      <div className="text-xs text-gray-500">Unmatched</div>
+                      <div className="text-xl font-bold text-gray-800">{matchingStats?.unmatched ?? 0}</div>
                     </div>
                   </div>
 
-                  <div className="mt-6 border rounded-lg p-4">
-                    <h3 className="font-semibold text-gray-800 mb-2">Notes</h3>
-                    <textarea className="w-full border rounded-md p-2 text-sm" rows="4" placeholder="Document any manual rank adjustments and justifications here..."></textarea>
-                    <div className="mt-3">
-                      <button className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors">Save Review</button>
-                    </div>
+                  {/* Mobile-first list to manually spot-check */}
+                  <div className="space-y-3">
+                    {scoredData.map((a, i) => (
+                      <div key={i} className="bg-white p-4 rounded-lg border shadow-sm hover-lift">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm text-gray-500">Rank</div>
+                          <div className="text-lg font-semibold text-gray-800">{i + 1}</div>
+                        </div>
+                        <div className="mt-1 font-semibold text-gray-900">{a.name}</div>
+                        <div className="text-sm text-gray-600">{a.medical_school} • {a.graduation_year}</div>
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                          <div><span className="text-gray-500">Score:</span> <span className="font-medium">{a.rubric_total}</span></div>
+                          <div><span className="text-gray-500">Step1:</span> <span className="font-medium">{a.step1 || 'N/A'}</span></div>
+                          <div><span className="text-gray-500">Step2:</span> <span className="font-medium">{a.step2 || 'N/A'}</span></div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium
+                            ${a.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
+                              a.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
+                              a.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                            {a.recommendation}
+                          </span>
+                          <button
+                            className="text-purple-600 text-sm font-medium underline"
+                            onClick={() => setSelectedApplicant(a)}
+                          >
+                            Review
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1029,41 +1106,41 @@
             {/* Export */}
             {activeTab === 'export' && (
               <div className="animate-slide-in">
-                <div className="glass-morphism rounded-xl p-8">
-                  <h2 className="text-2xl font-semibold mb-6 text-gray-800">Export Results</h2>
+                <div className="glass-morphism rounded-xl p-6 sm:p-8">
+                  <h2 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6 text-gray-800">Export Results</h2>
 
-                  <div className="space-y-6">
-                    <div className="border rounded-lg p-6 hover-lift cursor-pointer hover:border-purple-400 transition-all">
-                      <div className="flex items-start justify-between">
+                  <div className="space-y-4 sm:space-y-6">
+                    <div className="border rounded-lg p-4 sm:p-6 hover-lift cursor-pointer hover:border-purple-400 transition-all">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                         <div>
                           <h3 className="font-semibold text-lg text-gray-800 mb-2">Excel Workbook</h3>
-                          <p className="text-gray-600 mb-4">
+                          <p className="text-gray-600 mb-3 sm:mb-4 text-sm sm:text-base">
                             Complete results with Master List, Ranked View, Red Flags, and Audit trail
                           </p>
-                          <div className="text-sm text-gray-500 space-y-1">
+                          <div className="text-xs sm:text-sm text-gray-500 space-y-1">
                             <p>• Master_List - All applicant data</p>
                             <p>• Ranked_View - Sorted by total score</p>
                             <p>• Red_Flags - Flagged issues</p>
                             <p>• Audit - Processing metadata</p>
                           </div>
                         </div>
-                        <button className="px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2" onClick={exportRotationSchedule}>
+                        <button className="w-full sm:w-auto px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center justify-center space-x-2" onClick={exportRotationSchedule}>
                           <DownloadIcon /><span>Download</span>
                         </button>
                       </div>
                     </div>
 
-                    <div className="border rounded-lg p-6 hover-lift cursor-pointer hover:border-purple-400 transition-all">
-                      <div className="flex items-start justify-between">
+                    <div className="border rounded-lg p-4 sm:p-6 hover-lift cursor-pointer hover:border-purple-400 transition-all">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                         <div>
                           <h3 className="font-semibold text-lg text-gray-800 mb-2">JSON Export</h3>
-                          <p className="text-gray-600 mb-4">Raw structured data in JSON Lines format</p>
-                          <div className="text-sm text-gray-500 space-y-1">
+                          <p className="text-gray-600 mb-3 sm:mb-4 text-sm sm:text-base">Raw structured data in JSON Lines format</p>
+                          <div className="text-xs sm:text-sm text-gray-500 space-y-1">
                             <p>• extracted.jsonl - Raw extracted data</p>
                             <p>• scored.jsonl - With rubric scores</p>
                           </div>
                         </div>
-                        <button className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center space-x-2" onClick={exportRotationSchedule}>
+                        <button className="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2" onClick={exportRotationSchedule}>
                           <DownloadIcon /><span>Download</span>
                         </button>
                       </div>
@@ -1077,44 +1154,67 @@
           {/* Applicant Modal */}
           {selectedApplicant && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={() => setSelectedApplicant(null)}>
-              <div className="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-start mb-4">
+              <div className="bg-white rounded-xl p-4 sm:p-6 max-w-2xl w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="flex items-start justify-between gap-3 mb-3 sm:mb-4">
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-800">{selectedApplicant.name}</h2>
-                    <p className="text-gray-600">{selectedApplicant.email}</p>
-                    <p className="text-sm text-gray-500">{selectedApplicant.medical_school} • Class of {selectedApplicant.graduation_year}</p>
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-800">{selectedApplicant.name}</h2>
+                    <p className="text-gray-600 text-sm sm:text-base break-all">{selectedApplicant.email}</p>
+                    <p className="text-xs sm:text-sm text-gray-500">{selectedApplicant.medical_school} • Class of {selectedApplicant.graduation_year}</p>
                   </div>
-                  <button onClick={() => setSelectedApplicant(null)} className="text-gray-400 hover:text-gray-600 text-2xl">✕</button>
+                  <button onClick={() => setSelectedApplicant(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-6">
-                  <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-2 sm:mt-4">
+                  <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
                     <h3 className="font-semibold mb-2 text-gray-700">Test Scores</h3>
                     <p>Step 1: {selectedApplicant.step1 || 'N/A'}</p>
                     <p>Step 2 CK: {selectedApplicant.step2 || 'N/A'}</p>
                   </div>
-                  <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
                     <h3 className="font-semibold mb-2 text-gray-700">Application Stats</h3>
                     <p>Experiences: {selectedApplicant.experiences}</p>
                     <p>Publications: {selectedApplicant.publications}</p>
                     <p>Honors: {selectedApplicant.honors}</p>
                   </div>
-                  <div className="bg-gray-50 p-4 rounded-lg col-span-2">
+                  <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+                    <h3 className="font-semibold mb-2 text-gray-700">Rotation Preferences</h3>
+                    <p className="text-sm text-gray-700">{(selectedApplicant.rotation_preferences || []).join(' • ')}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+                    <h3 className="font-semibold mb-2 text-gray-700">Status</h3>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium
+                        ${selectedApplicant.invitation_status === 'accepted' ? 'bg-green-100 text-green-800' :
+                           selectedApplicant.invitation_status === 'invited' ? 'bg-blue-100 text-blue-800' :
+                           selectedApplicant.invitation_status === 'declined' ? 'bg-red-100 text-red-800' :
+                           selectedApplicant.invitation_status === 'waitlist' ? 'bg-yellow-100 text-yellow-800' :
+                           'bg-gray-100 text-gray-800'}`}>
+                        {selectedApplicant.invitation_status}
+                      </span>
+                      {selectedApplicant.preference_matched && (
+                        <span className="text-xs text-gray-700">
+                          • {selectedApplicant.preference_matched === 1 ? '1st' : selectedApplicant.preference_matched === 2 ? '2nd' : '3rd'} choice
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 p-3 sm:p-4 rounded-lg sm:col-span-2">
                     <h3 className="font-semibold mb-2 text-gray-700">Rubric Scores</h3>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <div><p className="text-sm text-gray-500">Academics</p><p className="font-semibold">{selectedApplicant.academics}/25</p></div>
                       <div><p className="text-sm text-gray-500">Letters</p><p className="font-semibold">{selectedApplicant.letters}/25</p></div>
                       <div><p className="text-sm text-gray-500">Fit & Interest</p><p className="font-semibold">{selectedApplicant.fit_interest}/25</p></div>
                       <div><p className="text-sm text-gray-500">Professionalism</p><p className="font-semibold">{selectedApplicant.professionalism}/25</p></div>
                     </div>
-                    <div className="mt-4 pt-4 border-t">
+                    <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t">
                       <div className="flex justify-between items-center">
                         <span className="font-semibold">Total Score:</span>
-                        <span className="text-xl font-bold text-purple-600">{selectedApplicant.rubric_total}/100</span>
+                        <span className="text-lg sm:text-xl font-bold text-purple-600">{selectedApplicant.rubric_total}/100</span>
                       </div>
                       <div className="flex justify-between items-center mt-2">
                         <span className="font-semibold">Recommendation:</span>
-                        <span className={`px-3 py-1 rounded-full text-sm font-medium
+                        <span className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium
                           ${selectedApplicant.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
                              selectedApplicant.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
                              selectedApplicant.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
@@ -1123,8 +1223,8 @@
                       </div>
                     </div>
                   </div>
-                </div>
 
+                </div>
               </div>
             </div>
           )}
