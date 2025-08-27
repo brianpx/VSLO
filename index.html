@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>VSLO Application Processing System</title>
 
-  <!-- Created by Brian Pitts, M.D., M.S., MEHP 2025, v4.3 -->
+   <!-- Created by Brian Pitts, M.D., M.S., MEHP 2025, v4.4 -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
@@ -1136,7 +1136,9 @@
                     </div>
                   ) : (
                     <div className="text-center py-12 text-gray-500">
-                      <ChartIcon />
+                      <div className="flex justify-center">
+                        <ChartIcon />
+                      </div>
                       <p className="mt-4">No results yet. Process some applications first!</p>
                     </div>
                   )}
@@ -1278,7 +1280,9 @@
                     </>
                   ) : (
                     <div className="text-center py-12 text-gray-500">
-                      <TableIcon />
+                      <div className="flex justify-center">
+                        <TableIcon />
+                      </div>
                       <p className="mt-4">No rankings yet. Process some applications first!</p>
                     </div>
                   )}
