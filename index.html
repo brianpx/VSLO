@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>VSLO Application Processing System</title>
 
-  <!-- created by Brian Pitts, M.D., M.S., MEHP.  v4.1-->
+  <!-- Created by Brian Pitts, M.D., M.S., MEHP 2025, v4.3 -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
@@ -815,6 +815,12 @@
                         onClick={() => {
                           setActiveTab('process');
                           setMobileMenuOpen(false);
+                          // Auto-start processing if there are files or trigger demo
+                          if (uploadedFiles.length > 0) {
+                            simulateProcessing();
+                          } else {
+                            loadDemoData();
+                          }
                         }}
                         className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all
                           ${activeTab === 'process' ? 'bg-white text-purple-600' : 'bg-white/10 text-white hover:bg-white/20'}`}
@@ -1139,13 +1145,15 @@
             )}
 
             {/* Table (desktop: table, mobile: cards) */}
-            {activeTab === 'table' && scoredData.length > 0 && (
+            {activeTab === 'table' && (
               <div className="animate-slide-in">
                 <div className="glass-morphism rounded-xl p-6 sm:p-8">
                   <h2 className="text-xl sm:text-2xl font-semibold mb-6 text-gray-800">Sortable Rankings</h2>
 
-                  {/* Mobile cards */}
-                  <div className="md:hidden space-y-3">
+                  {scoredData.length > 0 ? (
+                    <>
+                      {/* Mobile cards */}
+                      <div className="md:hidden space-y-3">
                     {scoredData.map((a, idx) => (
                       <div key={idx} className="bg-white rounded-lg p-4 shadow hover-lift"
                            onDoubleClick={() => setSelectedApplicant(a)}>
@@ -1267,6 +1275,13 @@
                       </tbody>
                     </table>
                   </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-12 text-gray-500">
+                      <TableIcon />
+                      <p className="mt-4">No rankings yet. Process some applications first!</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
