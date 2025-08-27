@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>VSLO Application Processing System</title>
+
+  <!-- React 18 UMD -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel (for inline JSX in this prototype) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Tailwind (CDN for prototyping; ignore prod warning for now) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js (UMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+  <style>
+    @keyframes slideIn { from {opacity:0; transform: translateY(10px);} to {opacity:1; transform: translateY(0);} }
+    @keyframes pulse { 0%,100% {opacity:1;} 50% {opacity:.5;} }
+    .animate-slide-in { animation: slideIn .3s ease-out; }
+    .animate-pulse-slow { animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+    .gradient-bg { background: linear-gradient(135deg,#667eea 0%,#764ba2 100%); }
+    .glass-morphism { background: rgba(255,255,255,.95); backdrop-filter: blur(10px); border:1px solid rgba(255,255,255,.2); }
+    .hover-lift { transition: all .3s cubic-bezier(0.4,0,0.2,1); }
+    .hover-lift:hover { transform: translateY(-2px); box-shadow: 0 20px 25px -5px rgba(0,0,0,.1), 0 10px 10px -5px rgba(0,0,0,.04); }
+    .drop-target { outline: 2px dashed rgba(124,58,237,.35); outline-offset: 2px; }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="env,react">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    /* Icons */
+    const FileUploadIcon = () => (
+      <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="12" y1="18" x2="12" y2="12"></line>
+        <line x1="9" y1="15" x2="15" y2="15"></line>
+      </svg>
+    );
+    const ProcessIcon = () => (
+      <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+      </svg>
+    );
+    const ChartIcon = () => (
+      <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+        <line x1="18" y1="20" x2="18" y2="10"></line>
+        <line x1="12" y1="20" x2="12" y2="4"></line>
+        <line x1="6" y1="20" x2="6" y2="14"></line>
+      </svg>
+    );
+    const TableIcon = () => (
+      <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+        <line x1="3" y1="9" x2="21" y2="9"></line>
+        <line x1="9" y1="21" x2="9" y2="9"></line>
+        <line x1="15" y1="21" x2="15" y2="9"></line>
+      </svg>
+    );
+    const CalendarIcon = () => (
+      <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+        <line x1="16" y1="2" x2="16" y2="6"></line>
+        <line x1="8" y1="2" x2="8" y2="6"></line>
+        <line x1="3" y1="10" x2="21" y2="10"></line>
+      </svg>
+    );
+    const DownloadIcon = () => (
+      <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+    );
+    const ShieldIcon = () => (
+      <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        <path d="M9 12l2 2 4-4"></path>
+      </svg>
+    );
+
+    const TabButton = ({ icon, label, tabKey, activeTab, setActiveTab }) => (
+      <button
+        onClick={() => setActiveTab(tabKey)}
+        className={`flex items-center space-x-2 px-6 py-3 rounded-lg transition-all duration-200 hover-lift
+          ${activeTab === tabKey ? 'bg-white text-purple-600 shadow-lg' : 'bg-white/20 text-white hover:bg-white/30'}`}
+      >
+        {icon}
+        <span className="font-medium">{label}</span>
+      </button>
+    );
+
+    const ApplicantCard = ({ applicant, onSelect }) => (
+      <div className="glass-morphism rounded-lg p-4 hover-lift cursor-pointer animate-slide-in" onClick={() => onSelect(applicant)}>
+        <div className="flex justify-between items-start mb-3">
+          <div>
+            <h3 className="font-semibold text-gray-800">{applicant.name}</h3>
+            <p className="text-sm text-gray-600">{applicant.email}</p>
+          </div>
+          <span className={`px-3 py-1 rounded-full text-xs font-medium
+            ${applicant.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
+              applicant.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
+              applicant.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+            {applicant.recommendation}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div><span className="text-gray-500">Step 1:</span><span className="ml-2 font-medium">{applicant.step1 || 'N/A'}</span></div>
+          <div><span className="text-gray-500">Step 2:</span><span className="ml-2 font-medium">{applicant.step2 || 'N/A'}</span></div>
+          <div><span className="text-gray-500">Score:</span><span className="ml-2 font-medium">{applicant.rubric_total}/100</span></div>
+          <div><span className="text-gray-500">Pubs:</span><span className="ml-2 font-medium">{applicant.publications}</span></div>
+        </div>
+      </div>
+    );
+
+    const VSLOApp = () => {
+      /* Settings */
+      const [capacityPerMonth, setCapacityPerMonth] = useState(5);
+      const [lockAccepted, setLockAccepted] = useState(true);
+
+      /* State */
+      const [activeTab, setActiveTab] = useState('upload');
+      const [uploadedFiles, setUploadedFiles] = useState([]);
+      const [processingStatus, setProcessingStatus] = useState('idle');
+      const [processingProgress, setProcessingProgress] = useState(0);
+      const [extractedData, setExtractedData] = useState([]);
+      const [scoredData, setScoredData] = useState([]);
+      const [selectedApplicant, setSelectedApplicant] = useState(null);
+      const [logs, setLogs] = useState([]);
+      const [sortConfig, setSortConfig] = useState({ key: 'rubric_total', direction: 'desc' });
+      const [rotationAssignments, setRotationAssignments] = useState({});
+      const [matchingStats, setMatchingStats] = useState(null);
+
+      /* Re-run/Revert support */
+      const prevAssignmentsRef = useRef(null);
+      const prevStatsRef = useRef(null);
+      const [canRevert, setCanRevert] = useState(false);
+
+      /* Drag & drop support */
+      const dragRef = useRef(null);
+      const originalPositionsRef = useRef({});
+
+      /* UI refs */
+      const fileInputRef = useRef(null);
+      const chartRef = useRef(null);
+      const chartInstance = useRef(null);
+
+      const months = ['Aug 2025','Sep 2025','Oct 2025','Nov 2025','Dec 2025','Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026'];
+
+      const addLog = (message, type = 'info') => {
+        const timestamp = new Date().toLocaleTimeString();
+        setLogs(prev => [...prev, { timestamp, message, type }]);
+      };
+
+      const handleFileUpload = (event) => {
+        const files = Array.from(event.target.files);
+        const pdfFiles = files.filter(file => file.type === 'application/pdf');
+
+        if (pdfFiles.length > 0) {
+          setUploadedFiles(prev => [
+            ...prev,
+            ...pdfFiles.map(file => ({
+              name: file.name,
+              size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+              status: 'pending',
+              id: Date.now() + Math.random()
+            }))
+          ]);
+          addLog(`Uploaded ${pdfFiles.length} PDF file(s)`, 'success');
+        }
+        if (files.length > pdfFiles.length) {
+          addLog(`${files.length - pdfFiles.length} non-PDF file(s) were ignored`, 'warning');
+        }
+      };
+
+      const cloneAssignments = (assign) =>
+        Object.fromEntries(Object.entries(assign).map(([m, arr]) => [m, [...arr]]));
+
+      const ensureBaselinePositions = (assignments) => {
+        months.forEach(month => {
+          const arr = assignments[month] || [];
+          arr.forEach((stu, idx) => {
+            if (stu && stu.applicant_id && !originalPositionsRef.current[stu.applicant_id]) {
+              originalPositionsRef.current[stu.applicant_id] = { month, index: idx };
+            }
+          });
+        });
+      };
+
+      const runMatchingAlgorithm = (applicants) => {
+        if (!Array.isArray(applicants) || applicants.length === 0) {
+          addLog('Matching aborted: applicants array is empty.', 'warning');
+          setRotationAssignments({});
+          setMatchingStats(null);
+          return;
+        }
+
+        const assignments = {};
+        months.forEach(m => (assignments[m] = []));
+
+        const tryPlace = (student, month) => {
+          if (!assignments[month]) return false;
+          if (assignments[month].length >= capacityPerMonth) return false;
+          assignments[month].push(student);
+          return true;
+        };
+
+        const lockedIds = new Set();
+        if (lockAccepted) {
+          months.forEach(month => {
+            (rotationAssignments[month] || []).forEach(stu => {
+              if (stu?.invitation_status === 'accepted') {
+                const placed = tryPlace(
+                  { ...stu, assigned_month: month, preference_matched: stu.preference_matched ?? null },
+                  month
+                );
+                if (placed) lockedIds.add(stu.applicant_id);
+              }
+            });
+          });
+        }
+
+        const remaining = applicants.filter(a => !lockedIds.has(a.applicant_id));
+        remaining.sort((a, b) => (b.rubric_total ?? 0) - (a.rubric_total ?? 0));
+
+        const stats = { firstChoice: 0, secondChoice: 0, thirdChoice: 0, unmatched: 0 };
+
+        remaining.forEach(applicant => {
+          let assigned = false;
+          const prefs = Array.isArray(applicant.rotation_preferences) ? applicant.rotation_preferences : [];
+          for (let i = 0; i < prefs.length; i++) {
+            const prefMonth = prefs[i];
+            if (tryPlace({ ...applicant, assigned_month: prefMonth, preference_matched: i + 1 }, prefMonth)) {
+              if (i === 0) stats.firstChoice++;
+              else if (i === 1) stats.secondChoice++;
+              else stats.thirdChoice++;
+              assigned = true;
+              break;
+            }
+          }
+          if (!assigned) stats.unmatched++;
+        });
+
+        ensureBaselinePositions(assignments);
+
+        setRotationAssignments(assignments);
+        setMatchingStats(stats);
+
+        const totalPlaced = months.reduce((s, m) => s + (assignments[m]?.length || 0), 0);
+        addLog(`Matching complete: placed ${totalPlaced} / ${applicants.length} (1st:${stats.firstChoice}, 2nd:${stats.secondChoice}, 3rd:${stats.thirdChoice}, unmatched:${stats.unmatched}).`, 'success');
+      };
+
+      const simulateProcessing = () => {
+        setProcessingStatus('processing');
+        setProcessingProgress(0);
+        setActiveTab('process');
+        addLog('Starting PDF text extraction...', 'info');
+
+        let progress = 0;
+        const interval = setInterval(() => {
+          progress += Math.random() * 15;
+          if (progress >= 100) {
+            progress = 100;
+            clearInterval(interval);
+            setProcessingStatus('complete');
+            addLog('Processing complete!', 'success');
+
+            const simulatedData = [
+              { applicant_id:'JD2026', name:'Jane Doe', email:'jane.m.doe@email.com', step1:245, step2:252, experiences:3, publications:1, honors:2, academics:22, letters:20, fit_interest:18, professionalism:23, rubric_total:83, recommendation:'Strong Accept', medical_school:'UC Davis', graduation_year:2026, rotation_preferences:['Oct 2025','Nov 2025','Sep 2025'], invitation_status:'accepted' },
+              { applicant_id:'JS2025', name:'John Smith', email:'john.a.smith@example.com', step1:206, step2:208, experiences:2, publications:0, honors:0, academics:12, letters:10, fit_interest:13, professionalism:15, rubric_total:50, recommendation:'Hold', medical_school:'Midwest Community', graduation_year:2025, rotation_preferences:['Sep 2025','Oct 2025','Nov 2025'], invitation_status:'waitlist' },
+              { applicant_id:'SR2026', name:'Sarah Rodriguez', email:'srodriguez@medschool.edu', step1:238, step2:241, experiences:4, publications:3, honors:3, academics:20, letters:22, fit_interest:21, professionalism:24, rubric_total:87, recommendation:'Strong Accept', medical_school:'Stanford', graduation_year:2026, rotation_preferences:['Nov 2025','Oct 2025','Jan 2026'], invitation_status:'accepted' },
+              { applicant_id:'MK2026', name:'Michael Kim', email:'mkim@university.edu', step1:228, step2:null, experiences:5, publications:2, honors:1, academics:17, letters:18, fit_interest:20, professionalism:20, rubric_total:75, recommendation:'Accept', medical_school:'UCSF', graduation_year:2026, rotation_preferences:['Sep 2025','Aug 2025','Oct 2025'], invitation_status:'invited' },
+              { applicant_id:'EW2027', name:'Emily Wang', email:'ewang@medical.edu', step1:195, step2:201, experiences:1, publications:0, honors:0, academics:8, letters:12, fit_interest:10, professionalism:18, rubric_total:48, recommendation:'Do Not Invite', medical_school:'State Medical College', graduation_year:2027, rotation_preferences:['Mar 2026','Apr 2026','May 2026'], invitation_status:'no response' },
+              { applicant_id:'AC2026', name:'Alexandra Chen', email:'achen@northwestern.edu', step1:255, step2:262, experiences:6, publications:4, honors:4, academics:24, letters:23, fit_interest:22, professionalism:25, rubric_total:94, recommendation:'Strong Accept', medical_school:'Northwestern', graduation_year:2026, rotation_preferences:['Oct 2025','Sep 2025','Nov 2025'], invitation_status:'accepted' },
+              { applicant_id:'DM2025', name:'David Martinez', email:'dmartinez@columbia.edu', step1:234, step2:239, experiences:3, publications:2, honors:2, academics:19, letters:17, fit_interest:19, professionalism:21, rubric_total:76, recommendation:'Accept', medical_school:'Columbia', graduation_year:2025, rotation_preferences:['Nov 2025','Dec 2025','Oct 2025'], invitation_status:'accepted' },
+              { applicant_id:'LT2026', name:'Lisa Thompson', email:'lthompson@duke.edu', step1:248, step2:255, experiences:5, publications:5, honors:3, academics:23, letters:24, fit_interest:23, professionalism:24, rubric_total:94, recommendation:'Strong Accept', medical_school:'Duke', graduation_year:2026, rotation_preferences:['Sep 2025','Oct 2025','Aug 2025'], invitation_status:'accepted' },
+              { applicant_id:'RJ2027', name:'Robert Johnson', email:'rjohnson@local.edu', step1:198, step2:204, experiences:1, publications:0, honors:1, academics:10, letters:11, fit_interest:12, professionalism:16, rubric_total:49, recommendation:'Hold', medical_school:'Local State University', graduation_year:2027, rotation_preferences:['Jan 2026','Feb 2026','Mar 2026'], invitation_status:'waitlist' },
+              { applicant_id:'MP2026', name:'Maria Patel', email:'mpatel@yale.edu', step1:251, step2:258, experiences:7, publications:6, honors:5, academics:25, letters:25, fit_interest:24, professionalism:23, rubric_total:97, recommendation:'Strong Accept', medical_school:'Yale', graduation_year:2026, rotation_preferences:['Oct 2025','Nov 2025','Dec 2025'], invitation_status:'accepted' },
+              { applicant_id:'TW2026', name:'Thomas Wilson', email:'twilson@michigan.edu', step1:226, step2:232, experiences:3, publications:1, honors:2, academics:16, letters:15, fit_interest:17, professionalism:19, rubric_total:67, recommendation:'Accept', medical_school:'University of Michigan', graduation_year:2026, rotation_preferences:['Dec 2025','Jan 2026','Feb 2026'], invitation_status:'invited' },
+              { applicant_id:'NH2025', name:'Nina Harris', email:'nharris@wustl.edu', step1:244, step2:250, experiences:4, publications:3, honors:3, academics:21, letters:20, fit_interest:21, professionalism:22, rubric_total:84, recommendation:'Strong Accept', medical_school:'Washington University', graduation_year:2025, rotation_preferences:['Sep 2025','Nov 2025','Oct 2025'], invitation_status:'accepted' },
+              { applicant_id:'KL2026', name:'Kevin Lee', email:'klee@upenn.edu', step1:236, step2:243, experiences:4, publications:2, honors:2, academics:18, letters:19, fit_interest:18, professionalism:20, rubric_total:75, recommendation:'Accept', medical_school:'University of Pennsylvania', graduation_year:2026, rotation_preferences:['Aug 2025','Sep 2025','Oct 2025'], invitation_status:'invited' },
+              { applicant_id:'AG2027', name:'Amanda Garcia', email:'agarcia@community.edu', step1:202, step2:209, experiences:2, publications:0, honors:1, academics:11, letters:13, fit_interest:14, professionalism:17, rubric_total:55, recommendation:'Hold', medical_school:'Community Medical School', graduation_year:2027, rotation_preferences:['Feb 2026','Mar 2026','Apr 2026'], invitation_status:'waitlist' },
+              { applicant_id:'CB2026', name:'Christopher Brown', email:'cbrown@harvard.edu', step1:257, step2:264, experiences:8, publications:7, honors:6, academics:25, letters:24, fit_interest:25, professionalism:25, rubric_total:99, recommendation:'Strong Accept', medical_school:'Harvard', graduation_year:2026, rotation_preferences:['Oct 2025','Sep 2025','Nov 2025'], invitation_status:'accepted' },
+            ];
+
+            setExtractedData(simulatedData);
+            setScoredData(simulatedData);
+            runMatchingAlgorithm(simulatedData);
+            setActiveTab('rotations');
+          }
+
+          setProcessingProgress(progress);
+          if (progress < 30) addLog('Extracting text from PDFs...', 'info');
+          else if (progress < 60) addLog('Running LLM extraction with Mistral...', 'info');
+          else if (progress < 90) addLog('Scoring applicants using rubric...', 'info');
+
+        }, 500);
+      };
+
+      const handleSort = (key) => {
+        let direction = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
+        setSortConfig({ key, direction });
+
+        const sorted = [...scoredData].sort((a,b) => {
+          const aVal = a[key] ?? 0;
+          const bVal = b[key] ?? 0;
+          if (typeof aVal === 'string') {
+            return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+          }
+          return direction === 'asc' ? aVal - bVal : bVal - aVal;
+        });
+        setScoredData(sorted);
+      };
+
+      const SortArrow = ({ column }) => {
+        if (sortConfig.key !== column) return <span className="text-gray-400">↕</span>;
+        return sortConfig.direction === 'asc' ? <span className="text-purple-600">↑</span> : <span className="text-purple-600">↓</span>;
+      };
+
+      /* Verified 1st-choice counts (by first preference only) */
+      const firstChoiceCounts = useCallback(() => {
+        const counts = {};
+        (scoredData || []).forEach(a => {
+          const first = a?.rotation_preferences?.[0];
+          if (first) counts[first] = (counts[first] || 0) + 1;
+        });
+        return counts;
+      }, [scoredData]);
+
+      /* Chart.js */
+      useEffect(() => {
+        if (scoredData.length > 0 && activeTab === 'results' && chartRef.current) {
+          const timer = setTimeout(() => {
+            if (!chartRef.current) return;
+            if (chartInstance.current) chartInstance.current.destroy();
+
+            const ctx = chartRef.current.getContext('2d');
+            chartInstance.current = new Chart(ctx, {
+              type: 'bar',
+              data: {
+                labels: scoredData.map(d => d.name.split(' ')[1]),
+                datasets: [
+                  { label: 'Step 1', data: scoredData.map(d => d.step1 || 0) },
+                  { label: 'Step 2', data: scoredData.map(d => d.step2 || 0) },
+                  { label: 'Total Score', data: scoredData.map(d => d.rubric_total), yAxisID: 'y1' }
+                ]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  y: { beginAtZero: true, max: 300, title: { display: true, text: 'USMLE Scores' } },
+                  y1: { beginAtZero: true, max: 100, position: 'right', title: { display: true, text: 'Total Score' }, grid: { drawOnChartArea: false } }
+                },
+                plugins: {
+                  legend: { position: 'top' },
+                  tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label || ''}: ${ctx.parsed.y}` } }
+                }
+              }
+            });
+          }, 100);
+
+          return () => clearTimeout(timer);
+        }
+      }, [scoredData, activeTab]);
+
+      const exportRotationSchedule = () => {
+        console.log('Exporting rotation schedule...', rotationAssignments);
+        addLog('Export triggered (replace with real export logic).', 'info');
+      };
+
+      const getOriginalPosition = (applicant_id) => originalPositionsRef.current[applicant_id] || null;
+
+      const findApplicantPosition = (assignments, applicant_id) => {
+        for (const month of months) {
+          const arr = assignments[month] || [];
+          const idx = arr.findIndex(x => x?.applicant_id === applicant_id);
+          if (idx !== -1) return { month, index: idx };
+        }
+        return null;
+      };
+
+      const isMoved = (applicant, currentMonth, currentIndex) => {
+        const orig = applicant?.applicant_id ? getOriginalPosition(applicant.applicant_id) : null;
+        if (!orig) return false;
+        return orig.month !== currentMonth || orig.index !== currentIndex;
+      };
+
+      /* Drag handlers */
+      const handleDragStart = (student, fromMonth, fromIndex, e) => {
+        dragRef.current = { applicant_id: student.applicant_id, fromMonth, fromIndex };
+        try { e.dataTransfer.setData('text/plain', student.applicant_id); } catch {}
+        addLog(`Drag: ${student.name} from ${fromMonth} slot ${fromIndex+1}`, 'info');
+      };
+
+      const handleDragOver = (e) => {
+        e.preventDefault(); // allow drop
+      };
+
+      const handleDrop = (toMonth, toIndex, e) => {
+        e.preventDefault();
+        const drag = dragRef.current;
+        if (!drag) return;
+        const { applicant_id, fromMonth, fromIndex } = drag;
+        dragRef.current = null;
+
+        if (fromMonth === toMonth && fromIndex === toIndex) return;
+
+        setRotationAssignments(prev => {
+          const next = cloneAssignments(prev);
+          const fromArr = next[fromMonth] || [];
+          const toArr = next[toMonth] || [];
+          const dragged = fromArr[fromIndex];
+          if (!dragged || dragged.applicant_id !== applicant_id) return prev;
+
+          const target = toArr[toIndex];
+
+          // Place dragged into target cell
+          toArr[toIndex] = dragged;
+
+          if (target) {
+            // Swap: put target back to origin
+            fromArr[fromIndex] = target;
+          } else {
+            // Leave origin empty
+            fromArr[fromIndex] = undefined;
+          }
+
+          next[fromMonth] = fromArr;
+          next[toMonth] = toArr;
+
+          addLog(`Dropped ${dragged.name} into ${toMonth} slot ${toIndex+1}${target ? ' (swapped)' : ''}.`, 'success');
+          return next;
+        });
+      };
+
+      const handleRevertToOriginal = (applicant_id) => {
+        const orig = getOriginalPosition(applicant_id);
+        if (!orig) {
+          addLog('No original position recorded for this applicant.', 'warning');
+          return;
+        }
+
+        setRotationAssignments(prev => {
+          const next = cloneAssignments(prev);
+          const current = findApplicantPosition(next, applicant_id);
+          if (!current) return prev;
+          const curArr = next[current.month] || [];
+          const origArr = next[orig.month] || [];
+
+          const moving = curArr[current.index];
+          const displaced = origArr[orig.index];
+
+          origArr[orig.index] = moving;
+
+          if (displaced) {
+            curArr[current.index] = displaced;
+          } else {
+            curArr[current.index] = undefined;
+          }
+
+          next[current.month] = curArr;
+          next[orig.month] = origArr;
+
+          addLog(`Reverted ${moving?.name || applicant_id} to original ${orig.month} slot ${orig.index+1}.`, 'warning');
+          return next;
+        });
+      };
+
+      /* Revert whole schedule handler */
+      const handleRevertSchedule = () => {
+        if (prevAssignmentsRef.current && prevStatsRef.current) {
+          setRotationAssignments(prevAssignmentsRef.current);
+          setMatchingStats(prevStatsRef.current);
+          addLog('Reverted to prior rotation assignment state.', 'warning');
+          prevAssignmentsRef.current = null;
+          prevStatsRef.current = null;
+          setCanRevert(false);
+        } else {
+          addLog('No prior state to revert to.', 'warning');
+        }
+      };
+
+      const firstCounts = firstChoiceCounts();
+
+      return (
+        <div className="min-h-screen">
+          <div className="gradient-bg text-white">
+            <div className="container mx-auto px-6 py-8">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h1 className="text-3xl font-bold mb-2">VSLO Application Processing</h1>
+                  <p className="text-purple-100">Automated ERAS PDF extraction and scoring system</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-purple-100">Anesthesiology VSLO</div>
+                  <div className="text-2xl font-bold">ANES460</div>
+                </div>
+              </div>
+
+              <div className="flex space-x-4 flex-wrap">
+                <TabButton icon={<FileUploadIcon />} label="Upload" tabKey="upload" activeTab={activeTab} setActiveTab={setActiveTab}/>
+                <TabButton icon={<ProcessIcon />} label="Process" tabKey="process" activeTab={activeTab} setActiveTab={setActiveTab}/>
+                <TabButton icon={<ChartIcon />} label="Results" tabKey="results" activeTab={activeTab} setActiveTab={setActiveTab}/>
+                <TabButton icon={<TableIcon />} label="Table" tabKey="table" activeTab={activeTab} setActiveTab={setActiveTab}/>
+                <TabButton icon={<CalendarIcon />} label="Rotations" tabKey="rotations" activeTab={activeTab} setActiveTab={setActiveTab}/>
+                {/* New Bias Mitagation tab */}
+                <TabButton icon={<ShieldIcon />} label="Bias Mitagation" tabKey="bias" activeTab={activeTab} setActiveTab={setActiveTab}/>
+                <TabButton icon={<DownloadIcon />} label="Export" tabKey="export" activeTab={activeTab} setActiveTab={setActiveTab}/>
+              </div>
+            </div>
+          </div>
+
+          <div className="container mx-auto px-6 py-8">
+            {/* Upload */}
+            {activeTab === 'upload' && (
+              <div className="animate-slide-in">
+                <div className="glass-morphism rounded-xl p-8 mb-6">
+                  <h2 className="text-2xl font-semibold mb-6 text-gray-800">Upload ERAS PDFs</h2>
+
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-purple-400 transition-colors">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept=".pdf"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <FileUploadIcon />
+                    <p className="mt-4 text-lg text-gray-600">
+                      Drag and drop PDF files here, or{' '}
+                      <button
+                        onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                        className="text-purple-600 hover:text-purple-700 font-medium underline"
+                      >
+                        browse
+                      </button>
+                    </p>
+                    <p className="mt-2 text-sm text-gray-500">Only PDF files are accepted</p>
+                  </div>
+
+                  {uploadedFiles.length > 0 && (
+                    <div className="mt-8">
+                      <h3 className="font-semibold mb-4 text-gray-700">Uploaded Files ({uploadedFiles.length})</h3>
+                      <div className="space-y-2">
+                        {uploadedFiles.map(file => (
+                          <div key={file.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                            <div className="flex items-center space-x-3">
+                              <FileUploadIcon />
+                              <div>
+                                <p className="font-medium text-gray-800">{file.name}</p>
+                                <p className="text-sm text-gray-500">{file.size}</p>
+                              </div>
+                            </div>
+                            <span className="text-green-600">✓ Ready</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={simulateProcessing}
+                        className="mt-6 px-8 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors hover-lift"
+                      >
+                        Start Processing
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Process */}
+            {activeTab === 'process' && (
+              <div className="animate-slide-in">
+                <div className="glass-morphism rounded-xl p-8 mb-6">
+                  <h2 className="text-2xl font-semibold mb-6 text-gray-800">Processing Pipeline</h2>
+
+                  <div className="space-y-4">
+                    <div className="bg-gray-200 rounded-full h-4 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-purple-500 to-purple-600 transition-all duration-500"
+                        style={{ width: `${processingProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-center text-gray-600">
+                      {processingStatus === 'idle' && 'Ready to process'}
+                      {processingStatus === 'processing' && `Processing... ${Math.round(processingProgress)}%`}
+                      {processingStatus === 'complete' && 'Processing complete!'}
+                    </p>
+
+                    <div className="mt-8 space-y-4">
+                      {[
+                        { step: 1, name: 'PDF Text Extraction', desc: 'Extract text using pdfplumber/OCR' },
+                        { step: 2, name: 'LLM Processing', desc: 'Extract structured data with Mistral' },
+                        { step: 3, name: 'Schema Validation', desc: 'Validate against JSON schema' },
+                        { step: 4, name: 'Scoring & Ranking', desc: 'Apply rubric and calculate scores' },
+                        // Renamed per request
+                        { step: 5, name: 'Bias Mitagation', desc: 'Sub: Verify rank' }
+                      ].map(({ step, name, desc }) => (
+                        <div key={step}
+                          className={`flex items-start space-x-4 p-4 rounded-lg transition-all
+                            ${processingProgress >= (step - 1) * 20 ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50'}`}>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold
+                            ${processingProgress >= step * 20 ? 'bg-green-500' :
+                               processingProgress >= (step - 1) * 20 ? 'bg-purple-500 animate-pulse-slow' : 'bg-gray-300'}`}>
+                            {processingProgress >= step * 20 ? '✓' : step}
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-gray-800">{name}</h3>
+                            <p className="text-sm text-gray-600">{desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-8">
+                    <h3 className="font-semibold mb-4 text-gray-700">Processing Logs</h3>
+                    <div className="bg-gray-900 text-green-400 p-4 rounded-lg h-48 overflow-y-auto font-mono text-sm">
+                      {logs.map((log, idx) => (
+                        <div key={idx} className="mb-1">
+                          <span className="text-gray-500">[{log.timestamp}]</span>
+                          <span className={`ml-2
+                            ${log.type === 'error' ? 'text-red-400' :
+                               log.type === 'warning' ? 'text-yellow-400' :
+                               log.type === 'success' ? 'text-green-400' : 'text-gray-300'}`}>
+                            {log.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Results */}
+            {activeTab === 'results' && (
+              <div className="animate-slide-in">
+                <div className="glass-morphism rounded-xl p-8 mb-6">
+                  <h2 className="text-2xl font-semibold mb-6 text-gray-800">Applicant Results</h2>
+
+                  {scoredData.length > 0 ? (
+                    <div>
+                      <div className="grid grid-cols-5 gap-4 mb-8">
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
+                          <p className="text-sm text-blue-600 mb-1">Total</p>
+                          <p className="text-2xl font-bold text-blue-900">{scoredData.length}</p>
+                        </div>
+                        <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg">
+                          <p className="text-sm text-green-600 mb-1">Strong Accept</p>
+                          <p className="text-2xl font-bold text-green-900">
+                            {scoredData.filter(a => a.recommendation === 'Strong Accept').length}
+                          </p>
+                        </div>
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
+                          <p className="text-sm text-blue-600 mb-1">Accept</p>
+                          <p className="text-2xl font-bold text-blue-900">
+                            {scoredData.filter(a => a.recommendation === 'Accept').length}
+                          </p>
+                        </div>
+                        <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-4 rounded-lg">
+                          <p className="text-sm text-yellow-600 mb-1">Hold</p>
+                          <p className="text-2xl font-bold text-yellow-900">
+                            {scoredData.filter(a => a.recommendation === 'Hold').length}
+                          </p>
+                        </div>
+                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg">
+                          <p className="text-sm text-purple-600 mb-1">Avg Score</p>
+                          <p className="text-2xl font-bold text-purple-900">
+                            {(scoredData.reduce((s,a)=>s+a.rubric_total,0)/scoredData.length).toFixed(1)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mb-8 bg-white p-6 rounded-lg shadow-sm">
+                        <h3 className="font-semibold mb-4 text-gray-700">Score Comparison</h3>
+                        <div style={{ height: '300px' }}>
+                          <canvas ref={chartRef}></canvas>
+                        </div>
+                      </div>
+
+                      <h3 className="font-semibold mb-4 text-gray-700">Applicant Cards</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {scoredData.map((a, i) => (
+                          <ApplicantCard key={i} applicant={a} onSelect={setSelectedApplicant}/>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-gray-500">
+                      <ChartIcon />
+                      <p className="mt-4">No results yet. Process some applications first!</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Table */}
+            {activeTab === 'table' && scoredData.length > 0 && (
+              <div className="animate-slide-in">
+                <div className="glass-morphism rounded-xl p-8">
+                  <h2 className="text-2xl font-semibold mb-6 text-gray-800">Sortable Rankings</h2>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="border-b-2 border-gray-200">
+                          <th className="text-left p-3">
+                            <button onClick={() => handleSort('rubric_total')}
+                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                              <span>Rank</span><SortArrow column="rubric_total" />
+                            </button>
+                          </th>
+                          <th className="text-left p-3">
+                            <button onClick={() => handleSort('name')}
+                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                              <span>Name</span><SortArrow column="name" />
+                            </button>
+                          </th>
+                          <th className="text-left p-3">
+                            <button onClick={() => handleSort('medical_school')}
+                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                              <span>Medical School</span><SortArrow column="medical_school" />
+                            </button>
+                          </th>
+                          <th className="text-left p-3">
+                            <button onClick={() => handleSort('step1')}
+                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                              <span>Step 1</span><SortArrow column="step1" />
+                            </button>
+                          </th>
+                          <th className="text-left p-3">
+                            <button onClick={() => handleSort('step2')}
+                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                              <span>Step 2</span><SortArrow column="step2" />
+                            </button>
+                          </th>
+                          <th className="text-left p-3">
+                            <button onClick={() => handleSort('publications')}
+                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                              <span>Pubs</span><SortArrow column="publications" />
+                            </button>
+                          </th>
+                          <th className="text-left p-3">
+                            <button onClick={() => handleSort('rubric_total')}
+                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                              <span>Total Score</span><SortArrow column="rubric_total" />
+                            </button>
+                          </th>
+                          <th className="text-left p-3">Recommendation</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scoredData.map((a, idx) => (
+                          <tr key={idx}
+                              className="border-b hover:bg-purple-50 cursor-pointer transition-colors"
+                              onClick={() => setSelectedApplicant(a)}>
+                            <td className="p-3 font-medium">{scoredData.indexOf(a) + 1}</td>
+                            <td className="p-3">{a.name}</td>
+                            <td className="p-3">{a.medical_school}</td>
+                            <td className="p-3">{a.step1 || 'N/A'}</td>
+                            <td className="p-3">{a.step2 || 'N/A'}</td>
+                            <td className="p-3">{a.publications}</td>
+                            <td className="p-3">
+                              <div className="flex items-center space-x-2">
+                                <span className="font-semibold">{a.rubric_total}</span>
+                                <div className="w-24 bg-gray-200 rounded-full h-2">
+                                  <div className="h-2 rounded-full bg-gradient-to-r from-purple-500 to-purple-600"
+                                       style={{ width: `${a.rubric_total}%` }} />
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium
+                                ${a.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
+                                   a.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
+                                   a.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                                {a.recommendation}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Rotations with drag & drop + per-card revert */}
+            {activeTab === 'rotations' && (
+              <div className="animate-slide-in">
+                <div className="glass-morphism rounded-xl p-8">
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-semibold text-gray-800">Rotation Calendar</h2>
+                    <button
+                      onClick={exportRotationSchedule}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center space-x-2">
+                      <DownloadIcon /><span>Export Schedule</span>
+                    </button>
+                  </div>
+
+                  {matchingStats && (
+                    <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 mb-6">
+                      <h3 className="font-semibold mb-3 text-gray-700">Matching Statistics</h3>
+                      <div className="grid grid-cols-4 gap-4">
+                        <div><p className="text-sm text-gray-600">1st Choice</p><p className="text-2xl font-bold text-green-600">{matchingStats.firstChoice}</p></div>
+                        <div><p className="text-sm text-gray-600">2nd Choice</p><p className="text-2xl font-bold text-blue-600">{matchingStats.secondChoice}</p></div>
+                        <div><p className="text-sm text-gray-600">3rd Choice</p><p className="text-2xl font-bold text-yellow-600">{matchingStats.thirdChoice}</p></div>
+                        <div><p className="text-sm text-gray-600">Unmatched</p><p className="text-2xl font-bold text-red-600">{matchingStats.unmatched}</p></div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <div className="min-w-max">
+                      <div className="grid grid-cols-12 gap-2">
+                        <div className="font-semibold text-gray-700 p-2">Slot</div>
+                        {months.map(month => (
+                          <div key={month} className="font-semibold text-center text-gray-700 p-2 border-b-2 border-gray-200">
+                            {month}
+                            <div className="text-xs text-gray-500">1st choice: <span className="font-semibold">{firstCounts[month] || 0}</span></div>
+                          </div>
+                        ))}
+                        {[1,2,3,4,5].map(slot => ([
+                          <div key={`slot-${slot}`} className="text-gray-600 p-2">Slot {slot}</div>,
+                          ...months.map(month => {
+                            const index = slot - 1;
+                            const student = rotationAssignments[month]?.[index];
+
+                            const moved = student ? isMoved(student, month, index) : false;
+
+                            return (
+                              <div
+                                key={`${month}-${slot}`}
+                                onDragOver={handleDragOver}
+                                onDrop={(e) => handleDrop(month, index, e)}
+                                className={`border rounded-lg p-2 min-h-[80px] transition-all hover:shadow-md cursor-pointer
+                                  ${student ? 'bg-white' : 'bg-gray-50 border-dashed'} ${moved ? 'border-red-500 ring-1 ring-red-400' : ''}`}
+                                onDoubleClick={() => { if (student) setSelectedApplicant(student); }}
+                              >
+                                {student ? (
+                                  <div
+                                    draggable
+                                    onDragStart={(e) => handleDragStart(student, month, index, e)}
+                                    className="h-full"
+                                  >
+                                    <div className="flex items-start justify-between">
+                                      <p className="text-sm font-medium text-gray-800 truncate pr-2">
+                                        {student.name.split(' ').map(n => n[0]).join('')} - {student.name.split(' ')[1]}
+                                      </p>
+                                      {moved && (
+                                        <button
+                                          title="Revert to original slot"
+                                          onClick={(e) => { e.stopPropagation(); handleRevertToOriginal(student.applicant_id); }}
+                                          className="text-red-600 font-bold leading-none"
+                                        >
+                                          x
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="mt-1">
+                                      <span className={`text-xs px-2 py-1 rounded-full inline-block
+                                        ${student.invitation_status === 'accepted' ? 'bg-green-100 text-green-800' :
+                                           student.invitation_status === 'invited' ? 'bg-blue-100 text-blue-800' :
+                                           student.invitation_status === 'declined' ? 'bg-red-100 text-red-800' :
+                                           student.invitation_status === 'waitlist' ? 'bg-yellow-100 text-yellow-800' :
+                                           'bg-gray-100 text-gray-800'}`}>
+                                        {student.invitation_status}
+                                      </span>
+                                    </div>
+                                    {student.preference_matched && (
+                                      <p className={`text-xs mt-1
+                                        ${student.preference_matched === 1 ? 'text-green-600' :
+                                           student.preference_matched === 2 ? 'text-blue-600' : 'text-yellow-600'}`}>
+                                        {student.preference_matched === 1 ? '1st' :
+                                         student.preference_matched === 2 ? '2nd' : '3rd'} choice
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-gray-400 text-sm text-center mt-4">Empty</div>
+                                )}
+                              </div>
+                            );
+                          })
+                        ])).flat()}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                    <h3 className="font-semibold mb-2 text-gray-700">Status Legend</h3>
+                    <div className="flex flex-wrap gap-4">
+                      <div className="flex items-center space-x-2"><span className="w-3 h-3 bg-green-500 rounded-full"></span><span className="text-sm text-gray-600">Accepted</span></div>
+                      <div className="flex items-center space-x-2"><span className="w-3 h-3 bg-blue-500 rounded-full"></span><span className="text-sm text-gray-600">Invited</span></div>
+                      <div className="flex items-center space-x-2"><span className="w-3 h-3 bg-yellow-500 rounded-full"></span><span className="text-sm text-gray-600">Waitlist</span></div>
+                      <div className="flex items-center space-x-2"><span className="w-3 h-3 bg-red-500 rounded-full"></span><span className="text-sm text-gray-600">Declined</span></div>
+                      <div className="flex items-center space-x-2"><span className="w-3 h-3 bg-gray-500 rounded-full"></span><span className="text-sm text-gray-600">No Response</span></div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 p-4 border rounded-lg">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <h3 className="font-semibold mb-1 text-gray-700">Matching Algorithm</h3>
+                        <p className="text-sm text-gray-600">
+                          Priority-based placement by score with 1st/2nd/3rd preference consideration. Accepted students can be locked.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            if (!Array.isArray(scoredData) || scoredData.length === 0) {
+                              addLog('Cannot re-run: no scored applicants yet.', 'warning');
+                              return;
+                            }
+                            prevAssignmentsRef.current = JSON.parse(JSON.stringify(rotationAssignments || {}));
+                            prevStatsRef.current = matchingStats ? { ...matchingStats } : null;
+                            setCanRevert(true);
+                            addLog('Re-running matching algorithm…', 'info');
+                            runMatchingAlgorithm(scoredData);
+                          }}
+                          className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg font-medium hover:bg-purple-200 transition-colors"
+                        >
+                          Re-run Matching Algorithm
+                        </button>
+                        <button
+                          onClick={handleRevertSchedule}
+                          disabled={!canRevert}
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${canRevert ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                        >
+                          Revert
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-4 gap-4">
+                      <div><p className="text-sm text-gray-600">1st Choice</p><p className="text-2xl font-bold text-green-600">{matchingStats?.firstChoice ?? 0}</p></div>
+                      <div><p className="text-sm text-gray-600">2nd Choice</p><p className="text-2xl font-bold text-blue-600">{matchingStats?.secondChoice ?? 0}</p></div>
+                      <div><p className="text-sm text-gray-600">3rd Choice</p><p className="text-2xl font-bold text-yellow-600">{matchingStats?.thirdChoice ?? 0}</p></div>
+                      <div><p className="text-sm text-gray-600">Unmatched</p><p className="text-2xl font-bold text-red-600">{matchingStats?.unmatched ?? 0}</p></div>
+                    </div>
+                    <div className="mt-4 flex items-center gap-4">
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" checked={lockAccepted} onChange={e => setLockAccepted(e.target.checked)} />
+                        Lock already accepted students
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        Capacity / month:
+                        <input
+                          type="number"
+                          min="1"
+                          className="w-20 border rounded px-2 py-1"
+                          value={capacityPerMonth}
+                          onChange={e => setCapacityPerMonth(parseInt(e.target.value || '1', 10))}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bias Mitagation (new tab) */}
+            {activeTab === 'bias' && (
+              <div className="animate-slide-in">
+                <div className="glass-morphism rounded-xl p-8">
+                  <h2 className="text-2xl font-semibold mb-2 text-gray-800">Bias Mitagation</h2>
+                  <p className="text-sm text-gray-600 mb-6">Sub: <span className="font-medium">Verify rank</span></p>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="border rounded-lg p-4">
+                      <h3 className="font-semibold text-gray-800 mb-2">Checklist</h3>
+                      <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
+                        <li>Compare pre-/post-mitigation rank order.</li>
+                        <li>Highlight applicants moved ≥ 3 places.</li>
+                        <li>Flag ties broken by secondary criteria.</li>
+                        <li>Confirm underrepresented groups not adversely shifted.</li>
+                      </ul>
+                    </div>
+                    <div className="border rounded-lg p-4">
+                      <h3 className="font-semibold text-gray-800 mb-2">Quick Stats</h3>
+                      <p className="text-sm text-gray-700">First-choice requests by month (from dataset):</p>
+                      <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {Object.keys(firstCounts).length === 0 && <div className="text-xs text-gray-500">No data</div>}
+                        {Object.entries(firstCounts).map(([m, c]) => (
+                          <div key={m} className="rounded-md bg-purple-50 px-3 py-2 text-sm">
+                            <div className="font-medium text-gray-800">{m}</div>
+                            <div className="text-xs text-gray-600">1st choice: <span className="font-semibold">{c}</span></div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 border rounded-lg p-4">
+                    <h3 className="font-semibold text-gray-800 mb-2">Notes</h3>
+                    <textarea className="w-full border rounded-md p-2 text-sm" rows="4" placeholder="Document any manual rank adjustments and justifications here..."></textarea>
+                    <div className="mt-3">
+                      <button className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors">Save Review</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Export */}
+            {activeTab === 'export' && (
+              <div className="animate-slide-in">
+                <div className="glass-morphism rounded-xl p-8">
+                  <h2 className="text-2xl font-semibold mb-6 text-gray-800">Export Results</h2>
+
+                  <div className="space-y-6">
+                    <div className="border rounded-lg p-6 hover-lift cursor-pointer hover:border-purple-400 transition-all">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h3 className="font-semibold text-lg text-gray-800 mb-2">Excel Workbook</h3>
+                          <p className="text-gray-600 mb-4">
+                            Complete results with Master List, Ranked View, Red Flags, and Audit trail
+                          </p>
+                          <div className="text-sm text-gray-500 space-y-1">
+                            <p>• Master_List - All applicant data</p>
+                            <p>• Ranked_View - Sorted by total score</p>
+                            <p>• Red_Flags - Flagged issues</p>
+                            <p>• Audit - Processing metadata</p>
+                          </div>
+                        </div>
+                        <button className="px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2" onClick={exportRotationSchedule}>
+                          <DownloadIcon /><span>Download</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="border rounded-lg p-6 hover-lift cursor-pointer hover:border-purple-400 transition-all">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h3 className="font-semibold text-lg text-gray-800 mb-2">JSON Export</h3>
+                          <p className="text-gray-600 mb-4">Raw structured data in JSON Lines format</p>
+                          <div className="text-sm text-gray-500 space-y-1">
+                            <p>• extracted.jsonl - Raw extracted data</p>
+                            <p>• scored.jsonl - With rubric scores</p>
+                          </div>
+                        </div>
+                        <button className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center space-x-2" onClick={exportRotationSchedule}>
+                          <DownloadIcon /><span>Download</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Applicant Modal */}
+          {selectedApplicant && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={() => setSelectedApplicant(null)}>
+              <div className="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-800">{selectedApplicant.name}</h2>
+                    <p className="text-gray-600">{selectedApplicant.email}</p>
+                    <p className="text-sm text-gray-500">{selectedApplicant.medical_school} • Class of {selectedApplicant.graduation_year}</p>
+                  </div>
+                  <button onClick={() => setSelectedApplicant(null)} className="text-gray-400 hover:text-gray-600 text-2xl">✕</button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-6">
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h3 className="font-semibold mb-2 text-gray-700">Test Scores</h3>
+                    <p>Step 1: {selectedApplicant.step1 || 'N/A'}</p>
+                    <p>Step 2 CK: {selectedApplicant.step2 || 'N/A'}</p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h3 className="font-semibold mb-2 text-gray-700">Application Stats</h3>
+                    <p>Experiences: {selectedApplicant.experiences}</p>
+                    <p>Publications: {selectedApplicant.publications}</p>
+                    <p>Honors: {selectedApplicant.honors}</p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg col-span-2">
+                    <h3 className="font-semibold mb-2 text-gray-700">Rubric Scores</h3>
+                    <div className="grid grid-cols-4 gap-2">
+                      <div><p className="text-sm text-gray-500">Academics</p><p className="font-semibold">{selectedApplicant.academics}/25</p></div>
+                      <div><p className="text-sm text-gray-500">Letters</p><p className="font-semibold">{selectedApplicant.letters}/25</p></div>
+                      <div><p className="text-sm text-gray-500">Fit & Interest</p><p className="font-semibold">{selectedApplicant.fit_interest}/25</p></div>
+                      <div><p className="text-sm text-gray-500">Professionalism</p><p className="font-semibold">{selectedApplicant.professionalism}/25</p></div>
+                    </div>
+                    <div className="mt-4 pt-4 border-t">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold">Total Score:</span>
+                        <span className="text-xl font-bold text-purple-600">{selectedApplicant.rubric_total}/100</span>
+                      </div>
+                      <div className="flex justify-between items-center mt-2">
+                        <span className="font-semibold">Recommendation:</span>
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium
+                          ${selectedApplicant.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
+                             selectedApplicant.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
+                             selectedApplicant.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                          {selectedApplicant.recommendation}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<VSLOApp />);
+  </script>
+
+  <script>
+    window.addEventListener('error', (e) => {
+      console.error('Runtime error:', e.error || e.message);
+    });
+  </script>
+</body>
+</html>
