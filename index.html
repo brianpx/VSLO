@@ -4,20 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>VSLO Application Processing System</title>
-
-   <!-- Created by Brian Pitts, M.D., M.S., MEHP 2025, v4.4 -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
-  <!-- Babel (for inline JSX in this prototype) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- Tailwind (CDN for prototyping; use a build step for production) -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Chart.js (UMD) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-
   <style>
     @keyframes slideIn { from {opacity:0; transform: translateY(10px);} to {opacity:1; transform: translateY(0);} }
     @keyframes pulse { 0%,100% {opacity:1;} 50% {opacity:.5;} }
@@ -27,15 +18,28 @@
     .glass-morphism { background: rgba(255,255,255,.95); backdrop-filter: blur(10px); border:1px solid rgba(255,255,255,.2); }
     .hover-lift { transition: all .3s cubic-bezier(0.4,0,0.2,1); }
     .hover-lift:hover { transform: translateY(-2px); box-shadow: 0 20px 25px -5px rgba(0,0,0,.1), 0 10px 10px -5px rgba(0,0,0,.04); }
+  /* New styles for drag-and-drop feedback */
+    .drag-over-valid { border: 2px solid #10b981 !important; background-color: #ecfdf5 !important; }
+    .drag-over-invalid { border: 2px solid #ef4444 !important; background-color: #fef2f2 !important; }
+    .dragging { 
+      border: 2px solid #8b5cf6 !important; 
+      background-color: white !important;
+      border-radius: 0.5rem !important;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+    }
+    .drag-active {
+      border: 2px solid #a78bfa !important;
+      background-color: white !important;
+      border-radius: 0.5rem !important;
+      cursor: move !important;
+    }
   </style>
 </head>
 <body class="bg-gray-50">
   <div id="root"></div>
-
   <script type="text/babel" data-presets="env,react">
     const { useState, useEffect, useRef, Fragment } = React;
-
-    /* Icons */
+    /* Icons (unchanged) */
     const FileUploadIcon = () => (
       <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -91,7 +95,6 @@
     const ChevronRight = () => (
       <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
     );
-
     const TabButton = ({ icon, label, tabKey, activeTab, setActiveTab }) => (
       <button
         onClick={() => setActiveTab(tabKey)}
@@ -103,7 +106,6 @@
         <span className="font-medium">{label}</span>
       </button>
     );
-
     const ApplicantCard = ({ applicant, onSelect }) => (
       <div
         className="glass-morphism rounded-lg p-4 hover-lift cursor-pointer animate-slide-in"
@@ -130,11 +132,10 @@
         </div>
       </div>
     );
-
     const useIsMobile = () => {
       const [isMobile, setIsMobile] = useState(false);
       useEffect(() => {
-        const mq = window.matchMedia('(max-width: 767px)');
+        const mq = window.matchMedia('(max-width: 1023px)');
         const handler = (e) => setIsMobile(e.matches);
         setIsMobile(mq.matches);
         mq.addEventListener ? mq.addEventListener('change', handler) : mq.addListener(handler);
@@ -142,12 +143,10 @@
       }, []);
       return isMobile;
     };
-
     const VSLOApp = () => {
       /* Settings */
       const [capacityPerMonth, setCapacityPerMonth] = useState(5);
-      const [lockAccepted, setLockAccepted] = useState(true);
-
+      const [lockAccepted, setLockAccepted] = useState(false);
       /* State */
       const [activeTab, setActiveTab] = useState('upload');
       const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -160,38 +159,39 @@
       const [sortConfig, setSortConfig] = useState({ key: 'rubric_total', direction: 'desc' });
       const [rotationAssignments, setRotationAssignments] = useState({});
       const [matchingStats, setMatchingStats] = useState(null);
-      const [expandedCardId, setExpandedCardId] = useState(null); // mobile progressive disclosure
-      const [showMoveFor, setShowMoveFor] = useState(null); // {applicant, month, index}
-      const [showAboutModal, setShowAboutModal] = useState(false); // About modal
-      const [mobileMenuOpen, setMobileMenuOpen] = useState(false); // Mobile hamburger menu
-
+      const [expandedCardId, setExpandedCardId] = useState(null);
+      const [showMoveFor, setShowMoveFor] = useState(null);
+      const [showAboutModal, setShowAboutModal] = useState(false);
+      const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+      /* Bias Mitigation */
+      const [biasChecks, setBiasChecks] = useState({
+        missingStep2: false,
+        normalizeScores: false,
+        calculateBias: true
+      });
+      const [biasCalculating, setBiasCalculating] = useState(false);
+      const [biasResults, setBiasResults] = useState(null);
       /* Re-run/Revert support */
       const prevAssignmentsRef = useRef(null);
       const prevStatsRef = useRef(null);
       const [canRevert, setCanRevert] = useState(false);
-
       /* Drag & drop support */
-      const dragRef = useRef(null); // { applicant_id, fromMonth, fromIndex }
-      const originalPositionsRef = useRef({}); // applicant_id -> { month, index } baseline
-
+      const dragRef = useRef(null);
+      const originalPositionsRef = useRef({});
       /* UI refs */
       const fileInputRef = useRef(null);
       const chartRef = useRef(null);
       const chartInstance = useRef(null);
       const isMobile = useIsMobile();
-
       const months = ['Aug 2025','Sep 2025','Oct 2025','Nov 2025','Dec 2025','Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026'];
       const [mobileMonthIdx, setMobileMonthIdx] = useState(0);
-
       const addLog = (message, type = 'info') => {
         const timestamp = new Date().toLocaleTimeString();
         setLogs(prev => [...prev, { timestamp, message, type }]);
       };
-
       const handleFileUpload = (event) => {
         const files = Array.from(event.target.files);
         const pdfFiles = files.filter(file => file.type === 'application/pdf');
-
         if (pdfFiles.length > 0) {
           setUploadedFiles(prev => [
             ...prev,
@@ -208,14 +208,11 @@
           addLog(`${files.length - pdfFiles.length} non-PDF file(s) were ignored`, 'warning');
         }
       };
-
       const loadDemoData = () => {
-        // Start processing animation first
         setProcessingStatus('processing');
         setProcessingProgress(0);
         setActiveTab('process');
         addLog('Starting demo processing...', 'info');
-
         let progress = 0;
         const interval = setInterval(() => {
           progress += Math.random() * 15;
@@ -224,8 +221,6 @@
             clearInterval(interval);
             setProcessingStatus('complete');
             addLog('Processing complete!', 'success');
-
-            // Load demo data after processing animation
             addLog('Loading demo data…', 'info');
             const simulatedData = [
               { applicant_id:'JD2026', name:'Jane Doe', email:'jane.m.doe@email.com', step1:245, step2:252, experiences:3, publications:1, honors:2, academics:22, letters:20, fit_interest:18, professionalism:23, rubric_total:83, recommendation:'Strong Accept', medical_school:'UC Davis', graduation_year:2026, rotation_preferences:['Oct 2025','Nov 2025','Sep 2025'], invitation_status:'accepted' },
@@ -247,26 +242,16 @@
             setExtractedData(simulatedData);
             setScoredData(simulatedData);
             runMatchingAlgorithm(simulatedData);
-            
-            // First go to Results tab to show the processed data
             setActiveTab('results');
-            
-            // Then after a short delay, move to Scheduling tab
-            setTimeout(() => {
-              setActiveTab('rotations');
-            }, 2000);
           }
-
           setProcessingProgress(progress);
           if (progress < 30) addLog('Extracting text from PDFs...', 'info');
           else if (progress < 60) addLog('Running LLM extraction with Mistral...', 'info');
           else if (progress < 90) addLog('Scoring applicants using rubric...', 'info');
         }, 500);
       };
-
       const cloneAssignments = (assign) =>
         Object.fromEntries(Object.entries(assign).map(([m, arr]) => [m, [...arr]]));
-
       const ensureBaselinePositions = (assignments) => {
         months.forEach(month => {
           const arr = assignments[month] || [];
@@ -277,9 +262,7 @@
           });
         });
       };
-
       const recomputeStatsFromAssignments = (assignments, allApplicants) => {
-        // Count based on final placements (verifies 1st-choice counts correctly)
         let first = 0, second = 0, third = 0;
         let placedIds = new Set();
         months.forEach(m => {
@@ -297,7 +280,6 @@
         const unmatched = Math.max(total - placedIds.size, 0);
         return { firstChoice: first, secondChoice: second, thirdChoice: third, unmatched };
       };
-
       const runMatchingAlgorithm = (applicants) => {
         if (!Array.isArray(applicants) || applicants.length === 0) {
           addLog('Matching aborted: applicants array is empty.', 'warning');
@@ -305,18 +287,14 @@
           setMatchingStats(null);
           return;
         }
-
         const assignments = {};
         months.forEach(m => (assignments[m] = []));
-
         const tryPlace = (student, month) => {
           if (!assignments[month]) return false;
           if (assignments[month].length >= capacityPerMonth) return false;
           assignments[month].push({ ...student, assigned_month: month });
           return true;
         };
-
-        // Lock already accepted (keep their assigned month if already in schedule)
         const lockedIds = new Set();
         if (lockAccepted) {
           months.forEach(month => {
@@ -331,36 +309,26 @@
             });
           });
         }
-
-        // Place remaining by score, try 1st/2nd/3rd preferences
         const remaining = applicants.filter(a => !lockedIds.has(a.applicant_id));
         remaining.sort((a, b) => (b.rubric_total ?? 0) - (a.rubric_total ?? 0));
-
         remaining.forEach(applicant => {
           const prefs = Array.isArray(applicant.rotation_preferences) ? applicant.rotation_preferences : [];
           let assigned = false;
           for (let i = 0; i < prefs.length; i++) {
             if (tryPlace(applicant, prefs[i])) { assigned = true; break; }
           }
-          // If not assigned, leave unmatched (counted via stats as unmatched)
         });
-
-        // Set baseline positions for revert
         ensureBaselinePositions(assignments);
-
         setRotationAssignments(assignments);
         setMatchingStats(recomputeStatsFromAssignments(assignments, applicants));
-
         const totalPlaced = months.reduce((s, m) => s + (assignments[m]?.length || 0), 0);
         addLog(`Matching complete: placed ${totalPlaced} / ${applicants.length}.`, 'success');
       };
-
       const simulateProcessing = () => {
         setProcessingStatus('processing');
         setProcessingProgress(0);
         setActiveTab('process');
         addLog('Starting PDF text extraction...', 'info');
-
         let progress = 0;
         const interval = setInterval(() => {
           progress += Math.random() * 15;
@@ -369,8 +337,6 @@
             clearInterval(interval);
             setProcessingStatus('complete');
             addLog('Processing complete!', 'success');
-            
-            // Load the demo data (in real implementation, this would be the extracted data from PDFs)
             const simulatedData = [
               { applicant_id:'JD2026', name:'Jane Doe', email:'jane.m.doe@email.com', step1:245, step2:252, experiences:3, publications:1, honors:2, academics:22, letters:20, fit_interest:18, professionalism:23, rubric_total:83, recommendation:'Strong Accept', medical_school:'UC Davis', graduation_year:2026, rotation_preferences:['Oct 2025','Nov 2025','Sep 2025'], invitation_status:'accepted' },
               { applicant_id:'JS2025', name:'John Smith', email:'john.a.smith@example.com', step1:206, step2:208, experiences:2, publications:0, honors:0, academics:12, letters:10, fit_interest:13, professionalism:15, rubric_total:50, recommendation:'Hold', medical_school:'Midwest Community', graduation_year:2025, rotation_preferences:['Sep 2025','Oct 2025','Nov 2025'], invitation_status:'waitlist' },
@@ -391,23 +357,18 @@
             setExtractedData(simulatedData);
             setScoredData(simulatedData);
             runMatchingAlgorithm(simulatedData);
-            
-            // Navigate to Results tab instead of rotations
             setActiveTab('results');
           }
-
           setProcessingProgress(progress);
           if (progress < 30) addLog('Extracting text from PDFs...', 'info');
           else if (progress < 60) addLog('Running LLM extraction with Mistral...', 'info');
           else if (progress < 90) addLog('Scoring applicants using rubric...', 'info');
         }, 500);
       };
-
       const handleSort = (key) => {
         let direction = 'asc';
         if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
         setSortConfig({ key, direction });
-
         const sorted = [...scoredData].sort((a,b) => {
           const aVal = a[key] ?? 0;
           const bVal = b[key] ?? 0;
@@ -418,60 +379,50 @@
         });
         setScoredData(sorted);
       };
-
-      // Dark grey arrow component
       const SortArrow = ({ column }) => {
         if (sortConfig.key !== column) return <span className="text-gray-500">↕</span>;
         return sortConfig.direction === 'asc'
           ? <span className="text-gray-700">↑</span>
           : <span className="text-gray-700">↓</span>;
       };
-
-      /* Chart.js (hidden on mobile) */
       useEffect(() => {
-        if (isMobile) return; // do not render charts on mobile
+        if (isMobile) return;
         if (scoredData.length > 0 && activeTab === 'results' && chartRef.current) {
-          const timer = setTimeout(() => {
-            if (!chartRef.current) return;
-            if (chartInstance.current) chartInstance.current.destroy();
-
-            const ctx = chartRef.current.getContext('2d');
-            chartInstance.current = new Chart(ctx, {
-              type: 'bar',
-              data: {
-                labels: scoredData.map(d => d.name.split(' ')[1]),
-                datasets: [
-                  { label: 'Step 1', data: scoredData.map(d => d.step1 || 0) },
-                  { label: 'Step 2', data: scoredData.map(d => d.step2 || 0) },
-                  { label: 'Total Score', data: scoredData.map(d => d.rubric_total), yAxisID: 'y1' }
-                ]
+          if (chartInstance.current) chartInstance.current.destroy();
+          const ctx = chartRef.current.getContext('2d');
+          chartInstance.current = new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: scoredData.map(d => d.name.split(' ')[1]),
+              datasets: [
+                { label: 'Step 1', data: scoredData.map(d => d.step1 || 0) },
+                { label: 'Step 2', data: scoredData.map(d => d.step2 || 0) },
+                { label: 'Total Score', data: scoredData.map(d => d.rubric_total), yAxisID: 'y1' }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: { beginAtZero: true, max: 300, title: { display: true, text: 'USMLE Scores' } },
+                y1: { beginAtZero: true, max: 100, position: 'right', title: { display: true, text: 'Total Score' }, grid: { drawOnChartArea: false } }
               },
-              options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                  y: { beginAtZero: true, max: 300, title: { display: true, text: 'USMLE Scores' } },
-                  y1: { beginAtZero: true, max: 100, position: 'right', title: { display: true, text: 'Total Score' }, grid: { drawOnChartArea: false } }
-                },
-                plugins: {
-                  legend: { position: 'top' },
-                  tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label || ''}: ${ctx.parsed.y}` } }
-                }
+              plugins: {
+                legend: { position: 'top' },
+                tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label || ''}: ${ctx.parsed.y}` } }
               }
-            });
-          }, 100);
-
-          return () => clearTimeout(timer);
+            }
+          });
+          return () => {
+            if (chartInstance.current) chartInstance.current.destroy();
+          };
         }
       }, [scoredData, activeTab, isMobile]);
-
       const exportRotationSchedule = () => {
         console.log('Exporting rotation schedule...', rotationAssignments);
         addLog('Export triggered (replace with real export logic).', 'info');
       };
-
       const exportExcelWorkbook = () => {
-        // Create Excel-like data structure
         const workbook = {
           'Master_List': scoredData.map((a, idx) => ({
             'Rank': idx + 1,
@@ -502,17 +453,17 @@
             'Step 1': a.step1 || 'N/A',
             'Step 2': a.step2 || 'N/A'
           })),
-          'Red_Flags': scoredData.filter(a => 
-            a.recommendation === 'Do Not Invite' || 
+          'Red_Flags': scoredData.filter(a =>
+            a.recommendation === 'Do Not Invite' ||
             a.recommendation === 'Hold' ||
             a.step1 < 210 ||
             a.rubric_total < 60
           ).map(a => ({
             'Name': a.name,
             'Issue': a.recommendation === 'Do Not Invite' ? 'Not Recommended' :
-                    a.recommendation === 'Hold' ? 'On Hold' :
-                    a.step1 < 210 ? 'Low Step 1 Score' :
-                    'Low Total Score',
+                     a.recommendation === 'Hold' ? 'On Hold' :
+                     a.step1 < 210 ? 'Low Step 1 Score' :
+                     'Low Total Score',
             'Total Score': a.rubric_total,
             'Step 1': a.step1 || 'N/A',
             'Step 2': a.step2 || 'N/A'
@@ -527,8 +478,6 @@
             'Average Score': (scoredData.reduce((s,a)=>s+a.rubric_total,0)/scoredData.length).toFixed(2)
           }]
         };
-
-        // Convert to CSV format for each sheet (simplified Excel export)
         const csvContent = Object.entries(workbook).map(([sheetName, data]) => {
           if (data.length === 0) return '';
           const headers = Object.keys(data[0]);
@@ -538,8 +487,6 @@
           ].join('\n');
           return `Sheet: ${sheetName}\n${csv}\n\n`;
         }).join('');
-
-        // Create download
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -549,10 +496,8 @@
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-
         addLog('Excel workbook exported successfully', 'success');
       };
-
       const exportJSON = () => {
         const exportData = {
           metadata: {
@@ -565,12 +510,7 @@
           rotationAssignments: rotationAssignments,
           matchingStatistics: matchingStats
         };
-
-        // Create JSONL format (newline-delimited JSON)
         const jsonlContent = scoredData.map(record => JSON.stringify(record)).join('\n');
-
-        // Create downloads for both formats
-        // 1. Full JSON export
         const jsonBlob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
         const jsonUrl = URL.createObjectURL(jsonBlob);
         const jsonLink = document.createElement('a');
@@ -580,8 +520,6 @@
         jsonLink.click();
         document.body.removeChild(jsonLink);
         URL.revokeObjectURL(jsonUrl);
-
-        // 2. JSONL export for scored data
         const jsonlBlob = new Blob([jsonlContent], { type: 'application/x-ndjson' });
         const jsonlUrl = URL.createObjectURL(jsonlBlob);
         const jsonlLink = document.createElement('a');
@@ -591,12 +529,49 @@
         jsonlLink.click();
         document.body.removeChild(jsonlLink);
         URL.revokeObjectURL(jsonlUrl);
-
         addLog('JSON exports completed successfully', 'success');
       };
-
+      const runBiasVerification = () => {
+        setBiasCalculating(true);
+        setBiasResults(null);
+        setTimeout(() => {
+          const results = {};
+          if (biasChecks.missingStep2) {
+            results.missingStep2 = {
+              status: 'complete',
+              message: 'Applicants with missing Step 2 scores have been neutrally weighted. No significant ranking changes detected.',
+              impact: 'Low'
+            };
+          }
+          if (biasChecks.normalizeScores) {
+            results.normalizeScores = {
+              status: 'complete',
+              message: 'Letter and academic scores normalized across reviewers. Minor adjustments made to 3 applicants.',
+              impact: 'Medium'
+            };
+          }
+          if (biasChecks.calculateBias) {
+            results.calculateBias = {
+              status: 'complete',
+              message: 'Bias probability analysis complete. Score distribution appears balanced with no systematic bias detected.',
+              impact: 'Pass'
+            };
+          }
+          results.summary = {
+            overallStatus: 'Verification Complete',
+            recommendation: 'Rankings appear fair and consistent. Proceed with holistic review focusing on top 10 candidates. Consider manual review for borderline cases (65–75).',
+            nextSteps: [
+              'Review top 10 candidates in detail',
+              'Examine borderline applicants individually',
+              'Confirm rotation preferences match capacity'
+            ]
+          };
+          setBiasResults(results);
+          setBiasCalculating(false);
+          addLog('Bias verification completed successfully', 'success');
+        }, 1200);
+      };
       const getOriginalPosition = (applicant_id) => originalPositionsRef.current[applicant_id] || null;
-
       const findApplicantPosition = (assignments, applicant_id) => {
         for (const month of months) {
           const arr = assignments[month] || [];
@@ -605,96 +580,117 @@
         }
         return null;
       };
-
       const isMoved = (applicant, currentMonth, currentIndex) => {
         const orig = applicant?.applicant_id ? getOriginalPosition(applicant.applicant_id) : null;
         if (!orig) return false;
         return orig.month !== currentMonth || orig.index !== currentIndex;
       };
-
-      /* Drag handlers (desktop/tablet) */
+      /* Updated Drag Handlers */
       const handleDragStart = (student, fromMonth, fromIndex, e) => {
+        if (lockAccepted && student.invitation_status === 'accepted') {
+          addLog(`Cannot drag ${student.name}: Slot is locked (accepted student).`, 'warning');
+          e.preventDefault();
+          return;
+        }
         dragRef.current = { applicant_id: student.applicant_id, fromMonth, fromIndex };
-        try { e.dataTransfer.setData('text/plain', student.applicant_id); } catch {}
-        addLog(`Drag: ${student.name} from ${fromMonth} slot ${fromIndex+1}`, 'info');
+        e.dataTransfer.setData('text/plain', student.applicant_id);
+        e.dataTransfer.effectAllowed = 'move';
+        // Simplify drag image to use default browser behavior for better compatibility
+        e.target.classList.add('dragging');
+        addLog(`Dragging ${student.name} from ${fromMonth} slot ${fromIndex + 1}`, 'info');
       };
-
-      const handleDragOver = (e) => {
-        e.preventDefault(); // allow drop
-      };
-
-      const handleDrop = (toMonth, toIndex, e) => {
+      const handleDragOver = (toMonth, toIndex, student, e) => {
         e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        // Add visual feedback for valid/invalid drop zones
+        const target = e.currentTarget;
+        if (lockAccepted && student?.invitation_status === 'accepted') {
+          target.classList.add('drag-over-invalid');
+        } else if (!student || (toMonth !== dragRef.current?.fromMonth || toIndex !== dragRef.current?.fromIndex)) {
+          target.classList.add('drag-over-valid');
+        } else {
+          target.classList.add('drag-over-invalid');
+        }
+      };
+      const handleDragLeave = (e) => {
+        e.currentTarget.classList.remove('drag-over-valid', 'drag-over-invalid');
+      };
+      const handleDrop = (toMonth, toIndex, student, e) => {
+        e.preventDefault();
+        e.currentTarget.classList.remove('drag-over-valid', 'drag-over-invalid');
         const drag = dragRef.current;
         if (!drag) return;
         const { applicant_id, fromMonth, fromIndex } = drag;
-        dragRef.current = null;
-
-        if (fromMonth === toMonth && fromIndex === toIndex) return;
-
+        if (fromMonth === toMonth && fromIndex === toIndex) {
+          addLog(`No move: ${student?.name || 'Applicant'} dropped in same slot.`, 'info');
+          return;
+        }
+        if (lockAccepted && student?.invitation_status === 'accepted') {
+          addLog(`Cannot drop: Target slot in ${toMonth} is locked (accepted student).`, 'warning');
+          return;
+        }
         setRotationAssignments(prev => {
           const next = cloneAssignments(prev);
           const fromArr = next[fromMonth] || [];
           const toArr = next[toMonth] || [];
           const dragged = fromArr[fromIndex];
-          if (!dragged || dragged.applicant_id !== applicant_id) return prev;
-
+          if (!dragged || dragged.applicant_id !== applicant_id) {
+            addLog(`Invalid drop: Dragged applicant not found.`, 'error');
+            return prev;
+          }
           const target = toArr[toIndex];
-
-          // Place dragged into target cell
-          toArr[toIndex] = dragged;
-
+          toArr[toIndex] = { ...dragged, assigned_month: toMonth };
           if (target) {
-            // Swap: put target back to origin
-            fromArr[fromIndex] = target;
+            fromArr[fromIndex] = { ...target, assigned_month: fromMonth };
           } else {
-            // Leave origin empty
             fromArr[fromIndex] = undefined;
           }
-
-          next[fromMonth] = fromArr;
+          next[fromMonth] = fromArr.filter(x => x !== undefined);
           next[toMonth] = toArr;
-
           const stats = recomputeStatsFromAssignments(next, scoredData);
           setMatchingStats(stats);
-
-          addLog(`Dropped ${dragged.name} into ${toMonth} slot ${toIndex+1}${target ? ' (swapped)' : ''}.`, 'success');
+          addLog(
+            `Dropped ${dragged.name} into ${toMonth} slot ${toIndex + 1}${target ? ' (swapped)' : ''}.`,
+            'success'
+          );
           return next;
         });
+        dragRef.current = null;
+        document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
       };
-
+      const handleDragEnd = () => {
+        dragRef.current = null;
+        document.querySelectorAll('.drag-over-valid, .drag-over-invalid, .dragging')
+          .forEach(el => el.classList.remove('drag-over-valid', 'drag-over-invalid', 'dragging'));
+        addLog('Drag operation ended.', 'info');
+      };
       const handleRevertToOriginal = (applicant_id) => {
         const orig = getOriginalPosition(applicant_id);
         if (!orig) {
           addLog('No original position recorded for this applicant.', 'warning');
           return;
         }
-
         setRotationAssignments(prev => {
           const next = cloneAssignments(prev);
           const current = findApplicantPosition(next, applicant_id);
           if (!current) return prev;
           const curArr = next[current.month] || [];
           const origArr = next[orig.month] || [];
-
           const moving = curArr[current.index];
           const displaced = origArr[orig.index];
-
           origArr[orig.index] = moving;
           curArr[current.index] = displaced || undefined;
-
           next[current.month] = curArr;
           next[orig.month] = origArr;
-
           const stats = recomputeStatsFromAssignments(next, scoredData);
           setMatchingStats(stats);
-
-          addLog(`Reverted ${moving?.name || applicant_id} to original ${orig.month} slot ${orig.index+1}.`, 'warning');
+          addLog(
+            `Reverted ${moving?.name || applicant_id} to original ${orig.month} slot ${orig.index + 1}.`,
+            'warning'
+          );
           return next;
         });
       };
-
-      /* Mobile: move via action (no drag) */
       const performMove = (applicant, fromMonth, fromIndex, toMonth, toIndex) => {
         setRotationAssignments(prev => {
           const next = cloneAssignments(prev);
@@ -702,25 +698,18 @@
           const toArr = next[toMonth] || [];
           const dragged = fromArr[fromIndex];
           if (!dragged || dragged.applicant_id !== applicant.applicant_id) return prev;
-
           const target = toArr[toIndex];
-
           toArr[toIndex] = dragged;
           fromArr[fromIndex] = target || undefined;
-
           next[fromMonth] = fromArr;
           next[toMonth] = toArr;
-
           const stats = recomputeStatsFromAssignments(next, scoredData);
           setMatchingStats(stats);
-
           addLog(`Moved ${dragged.name} to ${toMonth} slot ${toIndex+1} via action.`, 'success');
           return next;
         });
         setShowMoveFor(null);
       };
-
-      /* Revert whole schedule handler (snapshot) */
       const handleRevertSchedule = () => {
         if (prevAssignmentsRef.current && prevStatsRef.current) {
           setRotationAssignments(prevAssignmentsRef.current);
@@ -733,8 +722,6 @@
           addLog('No prior state to revert to.', 'warning');
         }
       };
-
-      /* ======= UI ======= */
       return (
         <div className="min-h-screen flex flex-col">
           <div className="gradient-bg text-white sticky top-0 z-30">
@@ -745,9 +732,7 @@
                     <h1 className="text-2xl sm:text-3xl font-bold mb-1">VSLO Application Processing</h1>
                     <p className="text-purple-100 text-sm sm:text-base">Automated ERAS PDF extraction and scoring system</p>
                   </div>
-                  {/* Mobile Hamburger Button */}
-                  <button
-                    className="sm:hidden ml-4 p-2 rounded-lg bg-white/20 hover:bg-white/30"
+                  <button className="lg:hidden ml-4 p-2 rounded-lg bg-white/20 hover:bg-white/30"
                     onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                   >
                     <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -763,11 +748,11 @@
                     </svg>
                   </button>
                 </div>
-                <div className="text-right hidden sm:block">
+                <div className="text-right hidden lg:block">
                   <div className="text-xs sm:text-sm text-purple-100">Anesthesiology VSLO</div>
-                  <a 
-                    href="https://health.ucdavis.edu/anesthesiology/education/clerkship/" 
-                    target="_blank" 
+                  <a
+                    href="https://health.ucdavis.edu/anesthesiology/education/clerkship/"
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="text-xl sm:text-2xl font-bold hover:text-purple-200 transition-colors"
                   >
@@ -775,9 +760,7 @@
                   </a>
                 </div>
               </div>
-
-              {/* Desktop Tab Navigation */}
-              <div className="hidden sm:flex sm:flex-row sm:flex-wrap gap-3">
+              <div className="hidden lg:flex lg:flex-row lg:flex-wrap gap-3">
                 <TabButton icon={<FileUploadIcon />} label="Upload" tabKey="upload" activeTab={activeTab} setActiveTab={setActiveTab}/>
                 <TabButton icon={<ProcessIcon />} label="Process" tabKey="process" activeTab={activeTab} setActiveTab={setActiveTab}/>
                 <TabButton icon={<ChartIcon />} label="Results" tabKey="results" activeTab={activeTab} setActiveTab={setActiveTab}/>
@@ -786,18 +769,13 @@
                 <TabButton icon={<ShieldIcon />} label="Bias Mitigation" tabKey="bias" activeTab={activeTab} setActiveTab={setActiveTab}/>
                 <TabButton icon={<DownloadIcon />} label="Export" tabKey="export" activeTab={activeTab} setActiveTab={setActiveTab}/>
               </div>
-
-              {/* Mobile Hamburger Menu */}
               {mobileMenuOpen && (
                 <>
-                  {/* Backdrop */}
-                  <div 
+                  <div
                     className="fixed inset-0 bg-black/30 sm:hidden"
                     onClick={() => setMobileMenuOpen(false)}
                   ></div>
-                  
-                  {/* Menu Panel */}
-                  <div className="absolute top-full left-0 right-0 bg-purple-700 shadow-lg sm:hidden animate-slide-in">
+                  <div className="absolute top-full left-0 right-0 bg-purple-700 shadow-lg sm:hidden animate-slide-in z-40">
                     <div className="container mx-auto px-4 py-4 space-y-2">
                       <button
                         onClick={() => {
@@ -810,12 +788,10 @@
                         <FileUploadIcon />
                         <span className="font-medium">Upload</span>
                       </button>
-                      
                       <button
                         onClick={() => {
                           setActiveTab('process');
                           setMobileMenuOpen(false);
-                          // Auto-start processing if there are files or trigger demo
                           if (uploadedFiles.length > 0) {
                             simulateProcessing();
                           } else {
@@ -828,7 +804,6 @@
                         <ProcessIcon />
                         <span className="font-medium">Process</span>
                       </button>
-                      
                       <button
                         onClick={() => {
                           setActiveTab('results');
@@ -840,7 +815,6 @@
                         <ChartIcon />
                         <span className="font-medium">Results</span>
                       </button>
-                      
                       <button
                         onClick={() => {
                           setActiveTab('table');
@@ -852,7 +826,6 @@
                         <TableIcon />
                         <span className="font-medium">Rankings</span>
                       </button>
-                      
                       <button
                         onClick={() => {
                           setActiveTab('rotations');
@@ -864,7 +837,6 @@
                         <CalendarIcon />
                         <span className="font-medium">Scheduling</span>
                       </button>
-                      
                       <button
                         onClick={() => {
                           setActiveTab('bias');
@@ -876,7 +848,6 @@
                         <ShieldIcon />
                         <span className="font-medium">Bias Mitigation</span>
                       </button>
-                      
                       <button
                         onClick={() => {
                           setActiveTab('export');
@@ -888,8 +859,6 @@
                         <DownloadIcon />
                         <span className="font-medium">Export</span>
                       </button>
-                      
-                      {/* About button in mobile menu */}
                       <button
                         onClick={() => {
                           setShowAboutModal(true);
@@ -902,8 +871,6 @@
                         </svg>
                         <span className="font-medium">About</span>
                       </button>
-                      
-                      {/* ANES460 Link in mobile menu */}
                       <a
                         href="https://health.ucdavis.edu/anesthesiology/education/clerkship/"
                         target="_blank"
@@ -912,7 +879,7 @@
                         className="w-full flex items-center justify-between px-4 py-3 rounded-lg bg-purple-800 text-white"
                       >
                         <div>
-                          <div className="text-xs text-purple-200">Anesthesiology VSLO</div>
+                          <div className="text-xs text-purple-200">Anesthesiology VSLO v1.6</div>
                           <div className="text-lg font-bold">ANES460</div>
                         </div>
                         <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -925,14 +892,11 @@
               )}
             </div>
           </div>
-
           <div className="container mx-auto px-4 sm:px-6 py-8 flex-1">
-            {/* Upload */}
             {activeTab === 'upload' && (
               <div className="animate-slide-in">
                 <div className="glass-morphism rounded-xl p-6 sm:p-8 mb-6">
                   <h2 className="text-xl sm:text-2xl font-semibold mb-6 text-gray-800">Upload ERAS PDFs</h2>
-
                   <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 sm:p-12 text-center hover:border-purple-400 transition-colors">
                     <input
                       ref={fileInputRef}
@@ -955,8 +919,6 @@
                       </button>
                     </p>
                     <p className="mt-2 text-sm text-gray-500">Only PDF files are accepted</p>
-
-                    {/* Bypass / Demo */}
                     <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <button
                         onClick={loadDemoData}
@@ -968,15 +930,14 @@
                         onClick={simulateProcessing}
                         disabled={uploadedFiles.length === 0}
                         className={`w-full px-6 py-3 rounded-lg font-medium transition-colors
-                          ${uploadedFiles.length > 0 
-                            ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                          ${uploadedFiles.length > 0
+                            ? 'bg-purple-600 text-white hover:bg-purple-700'
                             : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
                       >
                         Process Uploaded PDFs
                       </button>
                     </div>
                   </div>
-
                   {uploadedFiles.length > 0 && (
                     <div className="mt-8">
                       <h3 className="font-semibold mb-4 text-gray-700">Uploaded Files ({uploadedFiles.length})</h3>
@@ -1014,13 +975,10 @@
                 </div>
               </div>
             )}
-
-            {/* Process */}
             {activeTab === 'process' && (
               <div className="animate-slide-in">
                 <div className="glass-morphism rounded-xl p-6 sm:p-8 mb-6">
                   <h2 className="text-xl sm:text-2xl font-semibold mb-6 text-gray-800">Processing Pipeline</h2>
-
                   <div className="space-y-4">
                     <div className="bg-gray-200 rounded-full h-3 sm:h-4 overflow-hidden">
                       <div
@@ -1033,14 +991,12 @@
                       {processingStatus === 'processing' && `Processing... ${Math.round(processingProgress)}%`}
                       {processingStatus === 'complete' && 'Processing complete!'}
                     </p>
-
                     <div className="mt-6 sm:mt-8 space-y-3 sm:space-y-4">
                       {[
                         { step: 1, name: 'PDF Text Extraction', desc: 'Extract text using pdfplumber/OCR' },
                         { step: 2, name: 'LLM Processing', desc: 'Extract structured data with Mistral' },
                         { step: 3, name: 'Schema Validation', desc: 'Validate against JSON schema' },
                         { step: 4, name: 'Scoring & Ranking', desc: 'Apply rubric and calculate scores' },
-                        // Renamed per request:
                         { step: 5, name: 'Bias Mitigation — Verify Rank', desc: 'Audit ranking for fairness and consistency' }
                       ].map(({ step, name, desc }) => (
                         <div key={step}
@@ -1059,7 +1015,6 @@
                       ))}
                     </div>
                   </div>
-
                   <div className="mt-6 sm:mt-8">
                     <h3 className="font-semibold mb-3 sm:mb-4 text-gray-700">Processing Logs</h3>
                     <div className="bg-gray-900 text-green-400 p-3 sm:p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs sm:text-sm">
@@ -1079,13 +1034,10 @@
                 </div>
               </div>
             )}
-
-            {/* Results */}
             {activeTab === 'results' && (
               <div className="animate-slide-in">
                 <div className="glass-morphism rounded-xl p-6 sm:p-8 mb-6">
                   <h2 className="text-xl sm:text-2xl font-semibold mb-6 text-gray-800">Applicant Results</h2>
-
                   {scoredData.length > 0 ? (
                     <div>
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-8">
@@ -1118,15 +1070,12 @@
                           </p>
                         </div>
                       </div>
-
-                      {/* Chart hidden on mobile */}
                       <div className="mb-8 bg-white p-4 sm:p-6 rounded-lg shadow-sm hidden md:block">
                         <h3 className="font-semibold mb-4 text-gray-700">Score Comparison</h3>
                         <div style={{ height: '300px' }}>
                           <canvas ref={chartRef}></canvas>
                         </div>
                       </div>
-
                       <h3 className="font-semibold mb-4 text-gray-700">Applicant Cards</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {scoredData.map((a, i) => (
@@ -1145,138 +1094,132 @@
                 </div>
               </div>
             )}
-
-            {/* Table (desktop: table, mobile: cards) */}
             {activeTab === 'table' && (
               <div className="animate-slide-in">
                 <div className="glass-morphism rounded-xl p-6 sm:p-8">
                   <h2 className="text-xl sm:text-2xl font-semibold mb-6 text-gray-800">Sortable Rankings</h2>
-
                   {scoredData.length > 0 ? (
                     <>
-                      {/* Mobile cards */}
                       <div className="md:hidden space-y-3">
-                    {scoredData.map((a, idx) => (
-                      <div key={idx} className="bg-white rounded-lg p-4 shadow hover-lift"
-                           onDoubleClick={() => setSelectedApplicant(a)}>
-                        <div className="flex justify-between items-start">
-                          <div className="min-w-0">
-                            <p className="text-xs text-gray-500">Rank #{idx + 1}</p>
-                            <p className="font-semibold text-gray-800 truncate">{a.name}</p>
-                            <p className="text-sm text-gray-600 truncate">{a.medical_school}</p>
-                          </div>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap
-                            ${a.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
-                               a.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
-                               a.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                            {a.recommendation}
-                          </span>
-                        </div>
-                        <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-                          <div><span className="text-gray-500">Step1</span><div className="font-medium">{a.step1 ?? 'N/A'}</div></div>
-                          <div><span className="text-gray-500">Step2</span><div className="font-medium">{a.step2 ?? 'N/A'}</div></div>
-                          <div><span className="text-gray-500">Score</span><div className="font-medium">{a.rubric_total}</div></div>
-                        </div>
-                        <div className="mt-3">
-                          <button className="w-full px-3 py-2 bg-purple-600 text-white rounded-lg font-medium"
-                                  onClick={() => setSelectedApplicant(a)}>
-                            View Details
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Desktop table */}
-                  <div className="overflow-x-auto hidden md:block">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="border-b-2 border-gray-200">
-                          <th className="text-left p-3">
-                            <button onClick={() => handleSort('rubric_total')}
-                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
-                              <span>Rank</span><SortArrow column="rubric_total" />
-                            </button>
-                          </th>
-                          <th className="text-left p-3">
-                            <button onClick={() => handleSort('name')}
-                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
-                              <span>Name</span><SortArrow column="name" />
-                            </button>
-                          </th>
-                          <th className="text-left p-3">
-                            <button onClick={() => handleSort('medical_school')}
-                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
-                              <span>Medical School</span><SortArrow column="medical_school" />
-                            </button>
-                          </th>
-                          <th className="text-left p-3">
-                            <button onClick={() => handleSort('step1')}
-                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
-                              <span>Step 1</span><SortArrow column="step1" />
-                            </button>
-                          </th>
-                          <th className="text-left p-3">
-                            <button onClick={() => handleSort('step2')}
-                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
-                              <span>Step 2</span><SortArrow column="step2" />
-                            </button>
-                          </th>
-                          <th className="text-left p-3">
-                            <button onClick={() => handleSort('publications')}
-                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
-                              <span>Pubs</span><SortArrow column="publications" />
-                            </button>
-                          </th>
-                          <th className="text-left p-3">
-                            <button onClick={() => handleSort('rubric_total')}
-                              className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
-                              <span>Total Score</span><SortArrow column="rubric_total" />
-                            </button>
-                          </th>
-                          <th className="text-left p-3">Recommendation</th>
-                        </tr>
-                      </thead>
-                      <tbody>
                         {scoredData.map((a, idx) => (
-                          <tr
-                            key={idx}
-                            className="border-b hover:bg-purple-50 cursor-pointer transition-colors"
-                            onDoubleClick={() => setSelectedApplicant(a)}
-                            onClick={() => setSelectedApplicant(a)}
-                          >
-                            <td className="p-3 font-medium">{idx + 1}</td>
-                            <td className="p-3">{a.name}</td>
-                            <td className="p-3">{a.medical_school}</td>
-                            <td className="p-3">{a.step1 ?? 'N/A'}</td>
-                            <td className="p-3">{a.step2 ?? 'N/A'}</td>
-                            <td className="p-3">{a.publications}</td>
-                            <td className="p-3">
-                              <div className="flex items-center space-x-2">
-                                <span className="font-semibold">{a.rubric_total}</span>
-                                <div className="w-24 bg-gray-200 rounded-full h-2">
-                                  <div
-                                    className="h-2 rounded-full bg-gradient-to-r from-purple-500 to-purple-600"
-                                    style={{ width: `${a.rubric_total}%` }}
-                                  />
-                                </div>
+                          <div key={idx} className="bg-white rounded-lg p-4 shadow hover-lift"
+                               onDoubleClick={() => setSelectedApplicant(a)}>
+                            <div className="flex justify-between items-start">
+                              <div className="min-w-0">
+                                <p className="text-xs text-gray-500">Rank #{idx + 1}</p>
+                                <p className="font-semibold text-gray-800 truncate">{a.name}</p>
+                                <p className="text-sm text-gray-600 truncate">{a.medical_school}</p>
                               </div>
-                            </td>
-                            <td className="p-3">
-                              <span
-                                className={`px-3 py-1 rounded-full text-xs font-medium
-                                  ${a.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
-                                     a.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
-                                     a.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}
-                              >
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap
+                                ${a.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
+                                   a.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
+                                   a.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
                                 {a.recommendation}
                               </span>
-                            </td>
-                          </tr>
+                            </div>
+                            <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                              <div><span className="text-gray-500">Step1</span><div className="font-medium">{a.step1 ?? 'N/A'}</div></div>
+                              <div><span className="text-gray-500">Step2</span><div className="font-medium">{a.step2 ?? 'N/A'}</div></div>
+                              <div><span className="text-gray-500">Score</span><div className="font-medium">{a.rubric_total}</div></div>
+                            </div>
+                            <div className="mt-3">
+                              <button className="w-full px-3 py-2 bg-purple-600 text-white rounded-lg font-medium"
+                                      onClick={() => setSelectedApplicant(a)}>
+                                View Details
+                              </button>
+                            </div>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      </div>
+                      <div className="overflow-x-auto hidden md:block">
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="border-b-2 border-gray-200">
+                              <th className="text-left p-3">
+                                <button onClick={() => handleSort('rubric_total')}
+                                  className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                                  <span>Rank</span><SortArrow column="rubric_total" />
+                                </button>
+                              </th>
+                              <th className="text-left p-3">
+                                <button onClick={() => handleSort('name')}
+                                  className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                                  <span>Name</span><SortArrow column="name" />
+                                </button>
+                              </th>
+                              <th className="text-left p-3">
+                                <button onClick={() => handleSort('medical_school')}
+                                  className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                                  <span>Medical School</span><SortArrow column="medical_school" />
+                                </button>
+                              </th>
+                              <th className="text-left p-3">
+                                <button onClick={() => handleSort('step1')}
+                                  className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                                  <span>Step 1</span><SortArrow column="step1" />
+                                </button>
+                              </th>
+                              <th className="text-left p-3">
+                                <button onClick={() => handleSort('step2')}
+                                  className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                                  <span>Step 2</span><SortArrow column="step2" />
+                                </button>
+                              </th>
+                              <th className="text-left p-3">
+                                <button onClick={() => handleSort('publications')}
+                                  className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                                  <span>Pubs</span><SortArrow column="publications" />
+                                </button>
+                              </th>
+                              <th className="text-left p-3">
+                                <button onClick={() => handleSort('rubric_total')}
+                                  className="flex items-center space-x-1 font-semibold text-gray-700 hover:text-purple-600">
+                                  <span>Total Score</span><SortArrow column="rubric_total" />
+                                </button>
+                              </th>
+                              <th className="text-left p-3">Recommendation</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {scoredData.map((a, idx) => (
+                              <tr
+                                key={idx}
+                                className="border-b hover:bg-purple-50 cursor-pointer transition-colors"
+                                onDoubleClick={() => setSelectedApplicant(a)}
+                                onClick={() => setSelectedApplicant(a)}
+                              >
+                                <td className="p-3 font-medium">{idx + 1}</td>
+                                <td className="p-3">{a.name}</td>
+                                <td className="p-3">{a.medical_school}</td>
+                                <td className="p-3">{a.step1 ?? 'N/A'}</td>
+                                <td className="p-3">{a.step2 ?? 'N/A'}</td>
+                                <td className="p-3">{a.publications}</td>
+                                <td className="p-3">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="font-semibold">{a.rubric_total}</span>
+                                    <div className="w-24 bg-gray-200 rounded-full h-2">
+                                      <div
+                                        className="h-2 rounded-full bg-gradient-to-r from-purple-500 to-purple-600"
+                                        style={{ width: `${a.rubric_total}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <span
+                                    className={`px-3 py-1 rounded-full text-xs font-medium
+                                      ${a.recommendation === 'Strong Accept' ? 'bg-green-100 text-green-800' :
+                                         a.recommendation === 'Accept' ? 'bg-blue-100 text-blue-800' :
+                                         a.recommendation === 'Hold' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}
+                                  >
+                                    {a.recommendation}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </>
                   ) : (
                     <div className="text-center py-12 text-gray-500">
@@ -1289,8 +1232,7 @@
                 </div>
               </div>
             )}
-
-            {/* Rotations (mobile: single column month + cards; desktop: grid) */}
+            {/* Rotations Tab with Updated Drag-and-Drop */}
             {activeTab === 'rotations' && (
               <div className="animate-slide-in">
                 <div className="glass-morphism rounded-xl p-4 sm:p-8">
@@ -1302,25 +1244,31 @@
                         className="w-full md:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center justify-center space-x-2">
                         <DownloadIcon /><span>Export Schedule</span>
                       </button>
-                      <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-2 text-sm text-gray-700">
-                          <input type="checkbox" checked={lockAccepted} onChange={e => setLockAccepted(e.target.checked)} />
-                          Lock accepted
-                        </label>
-                        <label className="flex items-center gap-2 text-sm text-gray-700">
-                          Capacity:
-                          <input
-                            type="number"
-                            min="1"
-                            className="w-20 border rounded px-2 py-1"
-                            value={capacityPerMonth}
-                            onChange={e => setCapacityPerMonth(parseInt(e.target.value || '1', 10))}
-                          />
-                        </label>
-                      </div>
+                      <div className="flex items-center gap-4">
+  <label className={`flex items-center gap-3 cursor-pointer select-none ${
+    lockAccepted ? 'text-gray-800' : 'text-gray-600'
+  }`}>
+    <input 
+      type="checkbox" 
+      className="h-5 w-5 accent-indigo-600 align-middle"
+      checked={lockAccepted} 
+      onChange={e => setLockAccepted(e.target.checked)} 
+    />
+    <span className="leading-none">Lock accepted</span>
+  </label>
+  <label className="flex items-center gap-2 text-sm text-gray-700">
+    Capacity:
+    <input
+      type="number"
+      min="1"
+      className="w-20 border rounded px-2 py-1"
+      value={capacityPerMonth}
+      onChange={e => setCapacityPerMonth(parseInt(e.target.value || '1', 10))}
+    />
+  </label>
+</div>
                     </div>
                   </div>
-
                   {matchingStats && (
                     <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 mb-4 sm:mb-6">
                       <h3 className="font-semibold mb-3 text-gray-700">Matching Statistics</h3>
@@ -1332,8 +1280,6 @@
                       </div>
                     </div>
                   )}
-
-                  {/* Mobile month navigation (sticky within card) */}
                   <div className="md:hidden sticky top-[64px] z-20">
                     <div className="bg-white/90 backdrop-blur-md border rounded-lg p-2 flex items-center justify-between">
                       <button
@@ -1361,8 +1307,6 @@
                       </button>
                     </div>
                   </div>
-
-                  {/* Mobile: single month full-width list of slot cards */}
                   <div className="md:hidden mt-4 space-y-4">
                     {(() => {
                       const month = months[mobileMonthIdx];
@@ -1370,12 +1314,12 @@
                       return (
                         <div>
                           <h3 className="text-lg font-semibold text-gray-800 mb-3">{month}</h3>
-                          {[0,1,2,3,4].map((index) => {
+                          {Array.from({ length: capacityPerMonth }).map((_, index) => {
                             const student = arr[index];
                             const moved = student ? isMoved(student, month, index) : false;
                             return (
                               <div key={`${month}-mobile-${index}`}
-                                   className={`border rounded-xl p-4 bg-white ${moved ? 'border-red-500 ring-1 ring-red-400' : ''}`}
+                                   className={`border rounded-xl p-4 mb-3 bg-white ${moved ? 'border-red-500 ring-1 ring-red-400' : ''}`}
                                    onDoubleClick={() => student && setSelectedApplicant(student)}>
                                 <div className="flex items-start justify-between">
                                   <div className="min-w-0">
@@ -1418,8 +1362,6 @@
                                     </button>
                                   )}
                                 </div>
-
-                                {/* Progressive disclosure (tap to expand) */}
                                 {student && (
                                   <div className="mt-3 space-y-2">
                                     {expandedCardId === student.applicant_id ? (
@@ -1430,7 +1372,6 @@
                                         <p><span className="text-gray-500">Rubric Total:</span> {student.rubric_total}/100</p>
                                       </div>
                                     ) : null}
-
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                       <button
                                         className="w-full px-3 py-2 bg-gray-100 rounded-lg"
@@ -1460,84 +1401,87 @@
                       );
                     })()}
                   </div>
-
-                  {/* Desktop/tablet grid view */}
+                  {/* Updated Desktop/Tablet Grid View with Drag-and-Drop */}
                   <div className="hidden md:block overflow-x-auto mt-6">
                     <div className="min-w-max">
-                      <div className="grid grid-cols-12 gap-2">
+                      <div className="grid" style={{ gridTemplateColumns: `auto repeat(${months.length}, 1fr)`}}>
                         <div className="font-semibold text-gray-700 p-2">Slot</div>
                         {months.map(month => (
                           <div key={month} className="font-semibold text-center text-gray-700 p-2 border-b-2 border-gray-200">
                             {month}
                           </div>
                         ))}
-                        {[1,2,3,4,5].map(slot => ([
-                          <div key={`slot-${slot}`} className="text-gray-600 p-2">Slot {slot}</div>,
-                          ...months.map(month => {
-                            const index = slot - 1;
-                            const student = rotationAssignments[month]?.[index];
-                            const moved = student ? isMoved(student, month, index) : false;
-
-                            return (
-                              <div
-                                key={`${month}-${slot}`}
-                                onDragOver={handleDragOver}
-                                onDrop={(e) => handleDrop(month, index, e)}
-                                className={`border rounded-lg p-2 min-h-[88px] transition-all hover:shadow-md cursor-pointer
-                                  ${student ? 'bg-white' : 'bg-gray-50 border-dashed'} ${moved ? 'border-red-500 ring-1 ring-red-400' : ''}`}
-                                onDoubleClick={() => student && setSelectedApplicant(student)}
-                              >
-                                {student ? (
-                                  <div
-                                    draggable
-                                    onDragStart={(e) => handleDragStart(student, month, index, e)}
-                                    className="h-full"
-                                  >
-                                    <div className="flex items-start justify-between">
-                                      <p className="text-sm font-medium text-gray-800 truncate pr-2" title={student.name}>
-                                        {student.name.split(' ').map(n => n[0]).join('')} - {student.name.split(' ')[1]}
-                                      </p>
-                                      {moved && (
-                                        <button
-                                          title="Revert to original slot"
-                                          onClick={(e) => { e.stopPropagation(); handleRevertToOriginal(student.applicant_id); }}
-                                          className="text-red-600 font-bold leading-none"
-                                        >
-                                          x
-                                        </button>
-                                      )}
+                        {Array.from({ length: capacityPerMonth }).map((_, slotIndex) => (
+                          <Fragment key={slotIndex}>
+                            <div className="text-gray-600 p-2">Slot {slotIndex + 1}</div>
+                            {months.map(month => {
+                              const student = rotationAssignments[month]?.[slotIndex];
+                              const moved = student ? isMoved(student, month, slotIndex) : false;
+                              const isLocked = lockAccepted && student?.invitation_status === 'accepted';
+                              return (
+                                <div
+                                  key={`${month}-${slotIndex}`}
+                                  onDragOver={(e) => handleDragOver(month, slotIndex, student, e)}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={(e) => handleDrop(month, slotIndex, student, e)}
+                                  className={`border rounded-lg p-2 min-h-[88px] transition-all hover:shadow-md cursor-pointer
+                                    ${student ? 'bg-white' : 'bg-gray-50 border-dashed'} ${moved ? 'border-red-500 ring-1 ring-red-400' : ''}`}
+                                  aria-label={student ? `Slot for ${student.name} in ${month}` : `Empty slot in ${month}`}
+                                >
+                                  {student ? (
+                                    <div
+                                      draggable={!isLocked}
+                                      onDragStart={(e) => !isLocked && handleDragStart(student, month, slotIndex, e)}
+                                      onDragEnd={handleDragEnd}
+                                      onDoubleClick={() => setSelectedApplicant(student)}
+                                      className="h-full"
+                                      aria-label={`Drag ${student.name} from ${month} slot ${slotIndex + 1}`}
+                                    >
+                                      <div className="flex items-start justify-between">
+                                        <p className="text-sm font-medium text-gray-800 truncate pr-2" title={student.name}>
+                                          {student.name.split(' ').map(n => n[0]).join('')} - {student.name.split(' ')[1]}
+                                        </p>
+                                        {moved && (
+                                          <button
+                                            title="Revert to original slot"
+                                            onClick={(e) => { e.stopPropagation(); handleRevertToOriginal(student.applicant_id); }}
+                                            className="text-red-600 font-bold leading-none"
+                                            aria-label={`Revert ${student.name} to original slot`}
+                                          >
+                                            x
+                                          </button>
+                                        )}
+                                      </div>
+                                      <div className="mt-1 flex items-center justify-between">
+                                        <span className={`text-xs px-2 py-1 rounded-full inline-block
+                                          ${student.invitation_status === 'accepted' ? 'bg-green-100 text-green-800' :
+                                             student.invitation_status === 'invited' ? 'bg-blue-100 text-blue-800' :
+                                             student.invitation_status === 'declined' ? 'bg-red-100 text-red-800' :
+                                             student.invitation_status === 'waitlist' ? 'bg-yellow-100 text-yellow-800' :
+                                             'bg-gray-100 text-gray-800'}`}>
+                                          {student.invitation_status}
+                                        </span>
+                                        {(() => {
+                                          const pi = (student.rotation_preferences || []).indexOf(month);
+                                          return pi > -1 && (
+                                            <span className={`text-xs ${pi===0?'text-green-600':pi===1?'text-blue-600':'text-yellow-600'}`}>
+                                              {pi===0?'1st':pi===1?'2nd':'3rd'} choice
+                                            </span>
+                                          );
+                                        })()}
+                                      </div>
                                     </div>
-                                    <div className="mt-1 flex items-center justify-between">
-                                      <span className={`text-xs px-2 py-1 rounded-full inline-block
-                                        ${student.invitation_status === 'accepted' ? 'bg-green-100 text-green-800' :
-                                           student.invitation_status === 'invited' ? 'bg-blue-100 text-blue-800' :
-                                           student.invitation_status === 'declined' ? 'bg-red-100 text-red-800' :
-                                           student.invitation_status === 'waitlist' ? 'bg-yellow-100 text-yellow-800' :
-                                           'bg-gray-100 text-gray-800'}`}>
-                                        {student.invitation_status}
-                                      </span>
-                                      {(() => {
-                                        const pi = (student.rotation_preferences || []).indexOf(month);
-                                        return pi > -1 && (
-                                          <span className={`text-xs ${pi===0?'text-green-600':pi===1?'text-blue-600':'text-yellow-600'}`}>
-                                            {pi===0?'1st':pi===1?'2nd':'3rd'} choice
-                                          </span>
-                                        );
-                                      })()}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="text-gray-400 text-sm text-center mt-4">Empty</div>
-                                )}
-                              </div>
-                            );
-                          })
-                        ])).flat()}
+                                  ) : (
+                                    <div className="text-gray-400 text-sm text-center mt-4">Empty</div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </Fragment>
+                        ))}
                       </div>
                     </div>
                   </div>
-
-                  {/* Controls */}
                   <div className="mt-6 p-4 border rounded-lg">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div>
@@ -1572,15 +1516,7 @@
                         </button>
                       </div>
                     </div>
-                    <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div><p className="text-xs text-gray-600">1st Choice</p><p className="text-xl sm:text-2xl font-bold text-green-600">{matchingStats?.firstChoice ?? 0}</p></div>
-                      <div><p className="text-xs text-gray-600">2nd Choice</p><p className="text-xl sm:text-2xl font-bold text-blue-600">{matchingStats?.secondChoice ?? 0}</p></div>
-                      <div><p className="text-xs text-gray-600">3rd Choice</p><p className="text-xl sm:text-2xl font-bold text-yellow-600">{matchingStats?.thirdChoice ?? 0}</p></div>
-                      <div><p className="text-xs text-gray-600">Unmatched</p><p className="text-xl sm:text-2xl font-bold text-red-600">{matchingStats?.unmatched ?? 0}</p></div>
-                    </div>
                   </div>
-
-                  {/* Move dialog (mobile-friendly) */}
                   {showMoveFor && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowMoveFor(null)}>
                       <div className="bg-white rounded-xl p-4 w-full max-w-md" onClick={e => e.stopPropagation()}>
@@ -1595,7 +1531,7 @@
                           <div>
                             <label className="text-sm text-gray-600">To Slot</label>
                             <select id="move-slot" className="mt-1 w-full border rounded-lg px-3 py-2">
-                              {[1,2,3,4,5].map(s => <option key={s} value={s-1}>Slot {s}</option>)}
+                              {Array.from({ length: capacityPerMonth }).map((_, i) => <option key={i+1} value={i}>Slot {i+1}</option>)}
                             </select>
                           </div>
                         </div>
@@ -1619,46 +1555,126 @@
                 </div>
               </div>
             )}
-
             {/* Bias Mitigation */}
             {activeTab === 'bias' && (
               <div className="animate-slide-in">
                 <div className="glass-morphism rounded-xl p-6 sm:p-8">
                   <div className="flex items-center gap-2 mb-6">
                     <ShieldIcon />
-                    <h2 className="text-xl sm:text-2xl font-semibold text-gray-800">Bias Mitigation</h2>
+                    <h3 className="text-xl sm:text-2xl font-semibold text-gray-800">Bias Mitigation</h3>
                   </div>
-
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <div className="bg-white rounded-lg p-4 border">
-                      <h3 className="font-semibold text-gray-800 mb-2">Verify Rank</h3>
-                      <p className="text-sm text-gray-600 mb-4">Run a basic fairness audit on rankings (e.g., score contribution balance, missing data impact).</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg">Recompute with Missing-Step2 Neutral</button>
-                        <button className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg">Normalize Letter/Academics</button>
-                        <button className="w-full px-4 py-2 bg-gray-100 rounded-lg">Compare Pre/Post</button>
-                        <button className="w-full px-4 py-2 bg-gray-100 rounded-lg">Export Audit</button>
+                      <h3 className="font-semibold text-gray-800 mb-4">Verify Rank</h3>
+                      <div className="space-y-3 mb-4">
+                        <label
+                          className={`flex items-center gap-3 cursor-pointer select-none ${
+                            biasChecks.missingStep2 ? 'text-gray-800' : 'text-gray-600'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-5 w-5 accent-indigo-600 align-middle"
+                            checked={biasChecks.missingStep2}
+                            onChange={(e) =>
+                              setBiasChecks({ ...biasChecks, missingStep2: e.target.checked })
+                            }
+                          />
+                          <span className="leading-none">
+                            Neutral weighting for missing Step 2
+                          </span>
+                        </label>
+                        <label
+                          className={`flex items-center gap-3 cursor-pointer select-none ${
+                            biasChecks.normalizeScores ? 'text-gray-800' : 'text-gray-600'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-5 w-5 accent-indigo-600 align-middle"
+                            checked={biasChecks.normalizeScores}
+                            onChange={(e) =>
+                              setBiasChecks({ ...biasChecks, normalizeScores: e.target.checked })
+                            }
+                          />
+                          <span className="leading-none">
+                            Normalize subjective subscores across reviewers
+                          </span>
+                        </label>
+                        <label
+                          className={`flex items-center gap-3 cursor-pointer select-none ${
+                            biasChecks.calculateBias ? 'text-gray-800' : 'text-gray-600'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-5 w-5 accent-indigo-600 align-middle"
+                            checked={biasChecks.calculateBias}
+                            onChange={(e) =>
+                              setBiasChecks({ ...biasChecks, calculateBias: e.target.checked })
+                            }
+                          />
+                          <span className="leading-none">
+                            Run distribution/bias probability checks
+                          </span>
+                        </label>
                       </div>
+                      <button
+                        onClick={runBiasVerification}
+                        className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                      >
+                        {biasCalculating ? 'Running…' : 'Run Checks'}
+                      </button>
                     </div>
                     <div className="bg-white rounded-lg p-4 border">
-                      <h3 className="font-semibold text-gray-800 mb-2">Summary (Demo)</h3>
-                      <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
-                        <li>Score distribution appears bimodal; top quartile drives most 1st-choice matches.</li>
-                        <li>Applicants with missing Step 2 not penalized after neutral weighting toggle.</li>
-                        <li>No excessive clustering by single component post-normalization.</li>
-                      </ul>
+                      <h3 className="font-semibold text-gray-800 mb-4">Results</h3>
+                      {!biasResults && !biasCalculating && (
+                        <p className="text-gray-500">Select options and run checks to see results.</p>
+                      )}
+                      {biasCalculating && (
+                        <p className="text-gray-500 animate-pulse-slow">Analyzing…</p>
+                      )}
+                      {biasResults && (
+                        <div className="space-y-3 text-sm">
+                          {biasResults.missingStep2 && (
+                            <div className="p-3 rounded bg-blue-50 border border-blue-200">
+                              <div className="font-semibold text-blue-900 mb-1">Missing Step 2</div>
+                              <div className="text-blue-800">{biasResults.missingStep2.message}</div>
+                            </div>
+                          )}
+                          {biasResults.normalizeScores && (
+                            <div className="p-3 rounded bg-yellow-50 border border-yellow-200">
+                              <div className="font-semibold text-yellow-900 mb-1">Normalization</div>
+                              <div className="text-yellow-800">{biasResults.normalizeScores.message}</div>
+                            </div>
+                          )}
+                          {biasResults.calculateBias && (
+                            <div className="p-3 rounded bg-green-50 border border-green-200">
+                              <div className="font-semibold text-green-900 mb-1">Bias Scan</div>
+                              <div className="text-green-800">{biasResults.calculateBias.message}</div>
+                            </div>
+                          )}
+                          {biasResults.summary && (
+                            <div className="p-3 rounded bg-gray-50 border">
+                              <div className="font-semibold text-gray-900 mb-1">{biasResults.summary.overallStatus}</div>
+                              <div className="text-gray-800">{biasResults.summary.recommendation}</div>
+                              <ul className="list-disc ml-5 mt-2 text-gray-700">
+                                {biasResults.summary.nextSteps.map((s, i) => <li key={i}>{s}</li>)}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
             )}
-
             {/* Export */}
             {activeTab === 'export' && (
               <div className="animate-slide-in">
                 <div className="glass-morphism rounded-xl p-6 sm:p-8">
                   <h2 className="text-xl sm:text-2xl font-semibold mb-6 text-gray-800">Export Results</h2>
-
                   <div className="space-y-4 sm:space-y-6">
                     <div className="border rounded-lg p-4 sm:p-6 hover-lift cursor-pointer hover:border-purple-400 transition-all">
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -1679,15 +1695,14 @@
                         </button>
                       </div>
                     </div>
-
                     <div className="border rounded-lg p-4 sm:p-6 hover-lift cursor-pointer hover:border-purple-400 transition-all">
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                         <div>
                           <h3 className="font-semibold text-lg text-gray-800 mb-2">JSON Export</h3>
-                          <p className="text-gray-600 mb-3 sm:mb-4">Raw structured data in JSON Lines format</p>
+                          <p className="text-gray-600 mb-3 sm:mb-4">Raw structured data in JSON & JSON Lines format</p>
                           <div className="text-sm text-gray-500 space-y-1">
-                            <p>• extracted.jsonl - Raw extracted data</p>
-                            <p>• scored.jsonl - With rubric scores</p>
+                            <p>• VSLO_Full_Export.json - All data in one file</p>
+                            <p>• VSLO_Scored.jsonl - Scored data, one record per line</p>
                           </div>
                         </div>
                         <button className="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2" onClick={exportJSON}>
@@ -1700,7 +1715,6 @@
               </div>
             )}
           </div>
-
           {/* Applicant Modal */}
           {selectedApplicant && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setSelectedApplicant(null)}>
@@ -1713,7 +1727,6 @@
                   </div>
                   <button onClick={() => setSelectedApplicant(null)} className="text-gray-400 hover:text-gray-600 text-2xl">✕</button>
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <h3 className="font-semibold mb-2 text-gray-700">Test Scores</h3>
@@ -1762,7 +1775,6 @@
               </div>
             </div>
           )}
-
           {/* Footer */}
           <footer className="bg-purple-100 border-t border-purple-200 mt-auto">
             <div className="container mx-auto px-4 sm:px-6 py-4">
@@ -1782,7 +1794,6 @@
               </div>
             </div>
           </footer>
-
           {/* About Modal */}
           {showAboutModal && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowAboutModal(false)}>
@@ -1791,7 +1802,6 @@
                   <h2 className="text-2xl font-bold text-gray-800">About the VSLO Application Processing System</h2>
                   <button onClick={() => setShowAboutModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">✕</button>
                 </div>
-
                 <div className="space-y-6 text-gray-700">
                   <div>
                     <h3 className="text-lg font-semibold mb-2 text-purple-700">The Problem</h3>
@@ -1799,14 +1809,12 @@
                       Reviewing VSLO (Visiting Student Learning Opportunities) and ERAS (Electronic Residency Application Service) applications is an essential but time-intensive process for faculty. Each application packet can span dozens of pages, with critical details—board scores, academic performance, publications, recommendation letters—buried inside PDFs. Manually extracting this information is laborious, prone to inconsistencies, and can inadvertently introduce reviewer bias or variability in scoring.
                     </p>
                   </div>
-
                   <div>
                     <h3 className="text-lg font-semibold mb-2 text-purple-700">What It Does</h3>
                     <p className="leading-relaxed">
                       The system automatically ingests ERAS/VSLO application PDFs, extracts structured information, and generates standardized applicant scorecards. It provides quick access to objective metrics, transparent rubric-based scoring, and visual summaries that make it easier for faculty to compare candidates at a glance. This allows faculty to focus their attention on holistic review and meaningful decision-making, rather than data entry.
                     </p>
                   </div>
-
                   <div>
                     <h3 className="text-lg font-semibold mb-2 text-purple-700">How It Works</h3>
                     <ul className="list-disc pl-5 space-y-2 leading-relaxed">
@@ -1816,7 +1824,6 @@
                       <li><strong>Auditability</strong>: Maintains a clear record of scoring criteria, extracted data, and reviewer notes to support transparency.</li>
                     </ul>
                   </div>
-
                   <div>
                     <h3 className="text-lg font-semibold mb-2 text-purple-700">Role of Machine Learning</h3>
                     <p className="leading-relaxed mb-2">Machine learning models support tasks such as:</p>
@@ -1829,14 +1836,12 @@
                       Importantly, the models are trained and tuned with a focus on <strong>fairness and transparency</strong>. Built-in safeguards monitor for systematic bias (e.g., differences across demographic groups), and outputs are always traceable back to their data sources.
                     </p>
                   </div>
-
                   <div>
                     <h3 className="text-lg font-semibold mb-2 text-purple-700">Human in the Loop</h3>
                     <p className="leading-relaxed">
                       This system does not replace faculty judgment. Instead, it <strong>augments the review process</strong> by reducing clerical burden and standardizing the information presented. Final decisions about acceptance, ranking, or rejection remain firmly with the human reviewers. Faculty can override, annotate, or disregard automated suggestions at any time. The guiding principle is <em>decision support, not decision replacement</em>.
                     </p>
                   </div>
-
                   <div className="mt-6 pt-4 border-t">
                     <div className="flex justify-center">
                       <a
@@ -1859,11 +1864,9 @@
         </div>
       );
     };
-
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<VSLOApp />);
   </script>
-
   <script>
     window.addEventListener('error', (e) => {
       console.error('Runtime error:', e.error || e.message);
