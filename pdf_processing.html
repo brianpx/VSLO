@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Processing Workflow</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 30px;
+            max-width: 1200px;
+            width: 100%;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #718096;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        
+        #diagram {
+            display: flex;
+            justify-content: center;
+            background: #fafafa;
+            border-radius: 10px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+        
+        .legend {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .legend h3 {
+            color: #2d3748;
+            margin-top: 0;
+        }
+        
+        .legend-items {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .color-box {
+            width: 30px;
+            height: 30px;
+            border-radius: 5px;
+            border: 2px solid #e2e8f0;
+        }
+        
+        .mermaid {
+            text-align: center;
+        }
+        
+        .library-table {
+            margin-top: 30px;
+            padding: 25px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .library-table h3 {
+            color: #2d3748;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            text-align: center;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.95em;
+            letter-spacing: 0.5px;
+        }
+        
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 0.9em;
+        }
+        
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+        
+        tbody tr:hover {
+            background: #f7fafc;
+            transition: background 0.3s ease;
+        }
+        
+        code {
+            background: #f1f5f9;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #4a5568;
+        }
+        
+        td:first-child {
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        td:nth-child(2) {
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Processing Workflow</h1>
+        <p class="subtitle">Intelligent OCR Decision Pipeline with pdfplumber & Tesseract</p>
+        
+        <div id="diagram">
+            <div class="mermaid">
+                graph TD
+                    %% --- Define Styles ---
+                    classDef start fill:#cce5ff,stroke:#4a90e2,stroke-width:3px,color:#004085
+                    classDef analysis fill:#fff3cd,stroke:#f0ad4e,stroke-width:2px,color:#85640a
+                    classDef decision fill:#e2e3e5,stroke:#6c757d,stroke-width:2px,color:#383d41
+                    classDef ocrPath fill:#f8d7da,stroke:#dc3545,stroke-width:2px,color:#721c24
+                    classDef textPath fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
+                    classDef process fill:#f0f0f0,stroke:#adb5bd,stroke-width:2px,color:#495057
+                    classDef output fill:#d1ecf1,stroke:#17a2b8,stroke-width:3px,color:#0c5460
+
+                    %% --- The Flowchart ---
+                    A[<b>Start:</b><br/>Original PDF Page]:::start
+                    A --> B[<b>1. Analyze Page Metrics</b><br/>with pdfplumber]:::analysis
+                    B --> C{<b>2. Should OCR be used?</b><br/>_should_ocr_page}:::decision
+
+                    C -->|Yes<br/>Word Density < 0.5 OR<br/>Image Area > 35%| D[<b>3a. Render Page to Image</b><br/>pypdfium2 at 300 DPI]:::ocrPath
+                    D --> E[<b>4a. Run Tesseract Heavy OCR</b><br/>psm 11 for sparse text]:::ocrPath
+                    E --> F[<b>5. OCR'd PDF Page</b><br/>New text layer created]:::output
+
+                    C -->|No<br/>Sufficient vector text found| G[<b>3b. Render Page to Image</b><br/>pypdfium2 at 300 DPI]:::textPath
+                    G --> H[<b>4b. Run Tesseract Light OCR</b><br/>psm 6 to preserve layout]:::textPath
+                    H --> I[<b>5. Searchable PDF Page</b><br/>Text layer recreated]:::output
+
+                    F --> J[<b>6. Collect Processed Pages</b>]:::process
+                    I --> J
+                    J --> K[<b>End:</b><br/>Single page ready for merging<br/>into final document]:::start
+            </div>
+        </div>
+        
+        <div class="legend">
+            <h3>Process Legend</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="color-box" style="background: #cce5ff;"></div>
+                    <span><strong>Start/End Points:</strong> Input/Output states</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #fff3cd;"></div>
+                    <span><strong>Analysis:</strong> Page metric extraction</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #e2e3e5;"></div>
+                    <span><strong>Decision:</strong> OCR routing logic</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #f8d7da;"></div>
+                    <span><strong>OCR Path:</strong> Heavy OCR for image-based pages</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #d4edda;"></div>
+                    <span><strong>Text Path:</strong> Light OCR for text-based pages</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background: #d1ecf1;"></div>
+                    <span><strong>Output:</strong> Processed PDF pages</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="library-table">
+            <h3>Library Import Reference</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Library</th>
+                        <th>Import Statement</th>
+                        <th>Purpose & Core Function</th>
+                        <th>Used In This Workflow For</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>pdfplumber</strong></td>
+                        <td><code>import pdfplumber</code></td>
+                        <td>Extract text, tables, and metadata from PDFs with precise positioning and structure</td>
+                        <td>Analyzing page metrics to determine word density and image area ratios</td>
+                    </tr>
+                    <tr>
+                        <td><strong>pypdfium2</strong></td>
+                        <td><code>import pypdfium2 as pdfium</code></td>
+                        <td>Fast, lightweight PDF rendering library for converting PDF pages to images</td>
+                        <td>Rendering PDF pages to 300 DPI images for OCR processing</td>
+                    </tr>
+                    <tr>
+                        <td><strong>pytesseract</strong></td>
+                        <td><code>import pytesseract</code></td>
+                        <td>Python wrapper for Tesseract OCR engine to extract text from images</td>
+                        <td>Running OCR with PSM modes (11 for sparse, 6 for layout preservation)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Pillow (PIL)</strong></td>
+                        <td><code>from PIL import Image</code></td>
+                        <td>Image processing library for manipulating and converting image formats</td>
+                        <td>Processing rendered images between pypdfium2 and pytesseract</td>
+                    </tr>
+                    <tr>
+                        <td><strong>PyPDF2/pypdf</strong></td>
+                        <td><code>from pypdf import PdfWriter</code></td>
+                        <td>PDF manipulation library for merging, splitting, and modifying PDF files</td>
+                        <td>Merging processed pages into final searchable PDF document</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis',
+                padding: 20
+            }
+        });
+    </script>
+</body>
+</html>
